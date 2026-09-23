@@ -1,0 +1,1141 @@
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error
+
+
+st.set_page_config(page_title="Stock Signal Lab v2", page_icon="📈", layout="wide")
+
+# =========================================================
+# VISUAL DESIGN ONLY — backend/model logic below is unchanged
+# =========================================================
+
+st.markdown(
+    """
+    <style>
+        :root {
+            --ink: #111111;
+            --muted: #6f6f6f;
+            --surface: rgba(255,255,255,0.96);
+            --line: rgba(0,0,0,0.14);
+            --blue: #111111;
+            --blue-hover: #2b2b2b;
+            --shadow: 0 4px 14px rgba(0,0,0,0.05);
+            --radius: 8px;
+        }
+
+        html, body, [class*="css"] {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+                         "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+        }
+
+        .stApp {
+            background:
+                
+                
+                #f3f3f3;
+            color: var(--ink);
+        }
+
+        .block-container {
+            max-width: 1240px;
+            padding-top: 2.4rem;
+            padding-bottom: 5rem;
+        }
+
+        .app-hero {
+            padding: 2rem 2.1rem 1.9rem;
+            margin: 0 0 1.6rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.98);
+            border: 1px solid rgba(0,0,0,0.14);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+
+        .app-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: .45rem;
+            margin-bottom: .8rem;
+            padding: .35rem .65rem;
+            border-radius: 5px;
+            background: #e9e9e9;
+            color: #111111;
+            font-size: .72rem;
+            font-weight: 750;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .app-hero h1 {
+            margin: 0;
+            color: var(--ink);
+            font-size: clamp(2.1rem, 4.5vw, 3.8rem);
+            line-height: .98;
+            letter-spacing: -0.035em;
+            font-weight: 760;
+        }
+
+        .app-hero h1 span {
+            color: #707070;
+            font-weight: 600;
+        }
+
+        .app-hero p {
+            max-width: 760px;
+            margin: 1rem 0 0;
+            color: var(--muted);
+            font-size: 1.06rem;
+            line-height: 1.55;
+        }
+
+        .stock-hero {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 1.25rem;
+            padding: 1.55rem 1.7rem;
+            margin: 1.55rem 0 1rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.9);
+            border: 1px solid rgba(0,0,0,0.14);
+            box-shadow: var(--shadow);
+        }
+
+        .stock-kicker {
+            margin-bottom: .3rem;
+            color: #707070;
+            font-size: .72rem;
+            font-weight: 750;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .stock-name {
+            margin: 0;
+            color: var(--ink);
+            font-size: 2rem;
+            line-height: 1.08;
+            letter-spacing: -0.04em;
+            font-weight: 730;
+        }
+
+        .stock-company {
+            margin-top: .34rem;
+            color: var(--muted);
+            font-size: .94rem;
+        }
+
+        .signal-pill {
+            flex: 0 0 auto;
+            padding: .55rem .9rem;
+            border-radius: 5px;
+            font-size: .8rem;
+            font-weight: 760;
+            letter-spacing: .035em;
+            border: 1px solid transparent;
+        }
+
+        .signal-strong-buy,
+        .signal-buy {
+            color: #111111;
+            background: #e7e7e7;
+            border-color: #bdbdbd;
+        }
+
+        .signal-hold {
+            color: #111111;
+            background: #d9d9d9;
+            border-color: #ababab;
+        }
+
+        .signal-sell,
+        .signal-strong-sell {
+            color: #ffffff;
+            background: #2f2f2f;
+            border-color: #2f2f2f;
+        }
+
+        h1, h2, h3, h4 {
+            color: var(--ink) !important;
+            letter-spacing: -0.035em;
+        }
+
+        h2 {
+            margin-top: 2.15rem !important;
+            margin-bottom: .85rem !important;
+            font-size: 1.48rem !important;
+            font-weight: 710 !important;
+        }
+
+        h3 {
+            font-size: 1.12rem !important;
+            font-weight: 680 !important;
+        }
+
+        p, label, .stCaption {
+            color: var(--muted);
+        }
+
+        [data-testid="stMetric"] {
+            min-height: 108px;
+            padding: 1rem 1.05rem;
+            border-radius: var(--radius);
+            background: var(--surface);
+            border: 1px solid rgba(0,0,0,0.14);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.035);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+
+        [data-testid="stMetricLabel"] {
+            color: #75757a !important;
+            font-size: .79rem !important;
+            font-weight: 620 !important;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: var(--ink) !important;
+            font-size: 1.72rem !important;
+            font-weight: 710 !important;
+            letter-spacing: -0.04em;
+        }
+
+        [data-testid="stTextInput"] input {
+            min-height: 48px;
+            border-radius: 6px !important;
+            border: 1px solid rgba(0,0,0,0.11) !important;
+            background: rgba(255,255,255,0.93) !important;
+            color: var(--ink) !important;
+        }
+
+        [data-testid="stTextInput"] input:focus {
+            border-color: rgba(0,0,0,0.55) !important;
+            box-shadow: 0 0 0 3px rgba(0,0,0,0.08) !important;
+        }
+
+        .stButton > button {
+            min-height: 43px;
+            border-radius: 6px !important;
+            border: 1px solid rgba(0,0,0,0.08) !important;
+            background: rgba(255,255,255,0.88) !important;
+            color: #2c2c2e !important;
+            font-weight: 640 !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.025);
+            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+        }
+
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0,0,0,0.32) !important;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+        }
+
+        .stButton > button[kind="primary"] {
+            background: var(--blue) !important;
+            color: white !important;
+            border-color: var(--blue) !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.10);
+        }
+
+        .stButton > button[kind="primary"]:hover {
+            background: var(--blue-hover) !important;
+            border-color: var(--blue-hover) !important;
+        }
+
+        [data-testid="stSidebar"] {
+            background: #ededed;
+            border-right: 1px solid rgba(0,0,0,0.065);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        [data-testid="stSidebar"] .stButton > button {
+            justify-content: flex-start;
+            padding-left: .95rem;
+        }
+
+        [data-testid="stAlert"] {
+            border-radius: 6px !important;
+            border: 1px solid rgba(0,0,0,0.07) !important;
+            box-shadow: none !important;
+        }
+
+        [data-testid="stVegaLiteChart"],
+        [data-testid="stArrowVegaLiteChart"] {
+            padding: .85rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.86);
+            border: 1px solid rgba(0,0,0,0.14);
+            box-shadow: 0 5px 22px rgba(0,0,0,0.035);
+        }
+
+        hr {
+            margin: 2rem 0 !important;
+            border: none !important;
+            border-top: 1px solid rgba(0,0,0,0.075) !important;
+        }
+
+        a {
+            color: #222222;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+
+        @media (max-width: 760px) {
+            .block-container {
+                padding-top: 1rem;
+            }
+
+            .app-hero {
+                padding: 1.65rem 1.35rem;
+                border-radius: 8px;
+            }
+
+            .stock-hero {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+    </style>
+
+    <div class="app-hero">
+        <div class="app-eyebrow">Signal research · v2</div>
+        <h1>Stock Signal Lab <span>v2</span></h1>
+        <p>
+            Technicals, fundamentals, earnings context, market-reaction signals,
+            and historical machine-learning forecasts — presented in one clean view.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+STRONG_BUY_THRESHOLD = 80
+BUY_THRESHOLD = 65
+HOLD_THRESHOLD = 45
+SELL_THRESHOLD = 30
+
+HORIZONS = {"1 Month": 21, "3 Months": 63, "6 Months": 126}
+FEATURE_COLUMNS = [
+    "return_1m", "return_3m", "return_6m", "rsi",
+    "distance_ma20", "distance_ma50", "distance_ma200",
+    "volatility_21d", "volume_change_21d",
+]
+
+FEATURED_STOCKS = [
+    ("MU", "Micron"),
+    ("AMD", "AMD"),
+    ("NVDA", "NVIDIA"),
+    ("META", "Meta"),
+    ("AAPL", "Apple"),
+    ("TSM", "TSMC"),
+]
+
+POSITIVE_WORDS = {
+    "beat", "beats", "upgrade", "upgraded", "raises", "raised", "record",
+    "strong", "growth", "profit", "bullish", "outperform", "approval",
+    "partnership", "contract", "surge", "surges",
+}
+NEGATIVE_WORDS = {
+    "miss", "misses", "cut", "cuts", "downgrade", "downgraded", "lawsuit",
+    "probe", "investigation", "weak", "decline", "loss", "warning", "recall",
+    "layoff", "layoffs", "bearish", "underperform", "restriction", "restrictions",
+}
+
+
+if "ticker_input" not in st.session_state:
+    st.session_state["ticker_input"] = ""
+if "auto_analyze" not in st.session_state:
+    st.session_state["auto_analyze"] = False
+
+
+def choose_ticker(symbol):
+    st.session_state["ticker_input"] = symbol
+    st.session_state["auto_analyze"] = True
+
+
+def safe_float(value):
+    try:
+        if value is None:
+            return None
+        value = float(value)
+        return value if np.isfinite(value) else None
+    except Exception:
+        return None
+
+
+def normalize_fraction(value):
+    value = safe_float(value)
+    if value is None:
+        return None
+    if abs(value) > 2:
+        return value / 100.0
+    return value
+
+
+def clamp(value, low=0.0, high=100.0):
+    return float(np.clip(value, low, high))
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def download_data(ticker):
+    try:
+        data = yf.Ticker(ticker).history(period="10y", interval="1d", auto_adjust=True)
+        if data is None or data.empty:
+            return None
+        if "Close" not in data.columns or "Volume" not in data.columns:
+            return None
+        data = data.copy().sort_index()
+        data = data[~data.index.duplicated(keep="last")]
+        return data
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def download_fundamentals(ticker):
+    try:
+        info = yf.Ticker(ticker).info
+        if not isinstance(info, dict):
+            return {}
+        return {
+            "company_name": info.get("longName") or info.get("shortName"),
+            "sector": info.get("sector"),
+            "revenue_growth": normalize_fraction(info.get("revenueGrowth")),
+            "earnings_growth": normalize_fraction(info.get("earningsGrowth")),
+            "profit_margin": normalize_fraction(info.get("profitMargins")),
+            "forward_pe": safe_float(info.get("forwardPE")),
+            "debt_to_equity": safe_float(info.get("debtToEquity")),
+            "free_cash_flow": safe_float(info.get("freeCashflow")),
+        }
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def download_latest_earnings(ticker):
+    try:
+        earnings = yf.Ticker(ticker).get_earnings_dates(limit=8)
+        if earnings is None or earnings.empty:
+            return None
+
+        reported_col = None
+        estimate_col = None
+        surprise_col = None
+        for col in earnings.columns:
+            name = str(col).lower().replace(" ", "")
+            if "reportedeps" in name:
+                reported_col = col
+            elif "epsestimate" in name:
+                estimate_col = col
+            elif "surprise" in name:
+                surprise_col = col
+
+        if reported_col is None:
+            return None
+
+        past = earnings[earnings[reported_col].notna()]
+        if past.empty:
+            return None
+
+        row = past.iloc[0]
+        reported = safe_float(row.get(reported_col))
+        estimate = safe_float(row.get(estimate_col)) if estimate_col is not None else None
+        surprise = normalize_fraction(row.get(surprise_col)) if surprise_col is not None else None
+
+        if surprise is None and reported is not None and estimate not in (None, 0):
+            surprise = (reported - estimate) / abs(estimate)
+
+        try:
+            date_text = str(past.index[0].date())
+        except Exception:
+            date_text = str(past.index[0])
+
+        return {
+            "date": date_text,
+            "reported_eps": reported,
+            "estimate_eps": estimate,
+            "eps_surprise": surprise,
+        }
+    except Exception:
+        return None
+
+
+def parse_news_item(item):
+    if not isinstance(item, dict):
+        return None
+
+    if item.get("title"):
+        return {
+            "title": str(item.get("title", "")),
+            "publisher": str(item.get("publisher", "")),
+            "url": str(item.get("link", "")),
+        }
+
+    content = item.get("content")
+    if isinstance(content, dict):
+        provider = content.get("provider")
+        publisher = provider.get("displayName", "") if isinstance(provider, dict) else ""
+        canonical = content.get("canonicalUrl")
+        url = canonical.get("url", "") if isinstance(canonical, dict) else ""
+        if not url:
+            click = content.get("clickThroughUrl")
+            url = click.get("url", "") if isinstance(click, dict) else ""
+        title = str(content.get("title", ""))
+        if title:
+            return {"title": title, "publisher": str(publisher), "url": str(url)}
+
+    return None
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def download_news(ticker):
+    try:
+        raw = yf.Ticker(ticker).news
+        if not raw:
+            return []
+        out = []
+        for item in raw[:12]:
+            parsed = parse_news_item(item)
+            if parsed:
+                out.append(parsed)
+        return out
+    except Exception:
+        return []
+
+
+def headline_sentiment(news_items):
+    if not news_items:
+        return None
+    total = 0.0
+    counted = 0
+    for item in news_items:
+        words = set(item["title"].lower().replace("/", " ").replace("-", " ").split())
+        pos = len(words & POSITIVE_WORDS)
+        neg = len(words & NEGATIVE_WORDS)
+        diff = pos - neg
+        if diff != 0:
+            total += np.clip(diff, -2, 2)
+            counted += 1
+    if counted == 0:
+        return 0.0
+    return float(np.clip(total / (counted * 2.0), -1, 1))
+
+
+def calculate_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100)
+    rsi = rsi.mask((avg_gain == 0) & (avg_loss > 0), 0)
+    rsi = rsi.mask((avg_gain == 0) & (avg_loss == 0), 50)
+    return rsi
+
+
+def pct_return(close, days):
+    if len(close) <= days:
+        return np.nan
+    return float(close.iloc[-1] / close.iloc[-days - 1] - 1)
+
+
+def max_drawdown(close):
+    peak = close.cummax()
+    return float((close / peak - 1).min())
+
+
+def scaled_points(value, bad_value, good_value, points):
+    if pd.isna(value):
+        return 0.0
+    if value <= bad_value:
+        return 0.0
+    if value >= good_value:
+        return float(points)
+    return float(((value - bad_value) / (good_value - bad_value)) * points)
+
+
+def rsi_points(rsi):
+    if pd.isna(rsi):
+        return 0
+    if 50 <= rsi <= 65:
+        return 12
+    if 45 <= rsi < 50:
+        return 9
+    if 65 < rsi <= 72:
+        return 8
+    if 40 <= rsi < 45:
+        return 6
+    if 30 <= rsi < 40:
+        return 3
+    if 72 < rsi <= 80:
+        return 4
+    return 0
+
+
+def volatility_points(vol):
+    if vol <= 0.18:
+        return 8
+    if vol <= 0.28:
+        return 6
+    if vol <= 0.40:
+        return 3
+    if vol <= 0.55:
+        return 1
+    return 0
+
+
+def drawdown_points(dd):
+    if dd >= -0.10:
+        return 8
+    if dd >= -0.20:
+        return 6
+    if dd >= -0.30:
+        return 3
+    if dd >= -0.45:
+        return 1
+    return 0
+
+
+def technical_analysis(ticker):
+    data = download_data(ticker)
+    if data is None:
+        return None
+
+    close = data["Close"].dropna()
+    if len(close) < 200:
+        return None
+
+    price = float(close.iloc[-1])
+    ma20_series = close.rolling(20).mean()
+    ma50_series = close.rolling(50).mean()
+    ma200_series = close.rolling(200).mean()
+    ma20 = float(ma20_series.iloc[-1])
+    ma50 = float(ma50_series.iloc[-1])
+    ma200 = float(ma200_series.iloc[-1])
+
+    r1 = pct_return(close, 21)
+    r3 = pct_return(close, 63)
+    r6 = pct_return(close, 126)
+    rsi = float(calculate_rsi(close).iloc[-1])
+    annualized_vol = float(close.pct_change().dropna().std() * np.sqrt(252))
+    dd = max_drawdown(close)
+
+    score = 0.0
+    score += scaled_points(r1, -0.10, 0.10, 8)
+    score += scaled_points(r3, -0.20, 0.20, 12)
+    score += scaled_points(r6, -0.30, 0.30, 16)
+    if price > ma20:
+        score += 6
+    if price > ma50:
+        score += 10
+    if price > ma200:
+        score += 10
+    if ma50 > ma200:
+        score += 10
+    score += rsi_points(rsi)
+    score += volatility_points(annualized_vol)
+    score += drawdown_points(dd)
+
+    chart = pd.DataFrame({
+        "Price": close,
+        "MA 20": ma20_series,
+        "MA 50": ma50_series,
+        "MA 200": ma200_series,
+    }).dropna()
+
+    return {
+        "data": data,
+        "price": price,
+        "technical_score": clamp(score),
+        "return_1m": r1,
+        "return_3m": r3,
+        "return_6m": r6,
+        "ma20": ma20,
+        "ma50": ma50,
+        "ma200": ma200,
+        "rsi": rsi,
+        "annualized_volatility": annualized_vol,
+        "max_drawdown": dd,
+        "chart": chart,
+    }
+
+
+def weighted_available(parts):
+    if not parts:
+        return None
+    total_weight = sum(weight for score, weight in parts)
+    return clamp(sum(score * weight for score, weight in parts) / total_weight)
+
+
+def fundamental_score(fund):
+    if not fund:
+        return None, []
+
+    parts = []
+    notes = []
+
+    rev = fund.get("revenue_growth")
+    if rev is not None:
+        parts.append((clamp((rev + 0.10) / 0.35 * 100), 25))
+        notes.append("Revenue growth: {:+.1%}".format(rev))
+
+    earn = fund.get("earnings_growth")
+    if earn is not None:
+        parts.append((clamp((earn + 0.20) / 0.55 * 100), 25))
+        notes.append("Earnings growth: {:+.1%}".format(earn))
+
+    margin = fund.get("profit_margin")
+    if margin is not None:
+        parts.append((clamp((margin - 0.01) / 0.24 * 100), 20))
+        notes.append("Profit margin: {:.1%}".format(margin))
+
+    pe = fund.get("forward_pe")
+    if pe is not None:
+        if pe <= 0:
+            pe_score = 0
+        elif 8 <= pe <= 25:
+            pe_score = 100
+        elif pe <= 35:
+            pe_score = 75
+        elif pe <= 50:
+            pe_score = 45
+        elif pe < 8:
+            pe_score = 65
+        else:
+            pe_score = 20
+        parts.append((pe_score, 15))
+        notes.append("Forward P/E: {:.1f}".format(pe))
+
+    debt = fund.get("debt_to_equity")
+    if debt is not None:
+        ratio = debt / 100.0 if debt > 10 else debt
+        if ratio <= 0.30:
+            debt_score = 100
+        elif ratio <= 0.70:
+            debt_score = 75
+        elif ratio <= 1.20:
+            debt_score = 45
+        else:
+            debt_score = 20
+        parts.append((debt_score, 10))
+        notes.append("Debt/equity: {:.2f}".format(ratio))
+
+    fcf = fund.get("free_cash_flow")
+    if fcf is not None:
+        parts.append((100 if fcf > 0 else 20, 5))
+        notes.append("Free cash flow: {}".format("positive" if fcf > 0 else "negative"))
+
+    return weighted_available(parts), notes
+
+
+def event_score(earnings, news_items):
+    parts = []
+    notes = []
+
+    if earnings is not None and earnings.get("eps_surprise") is not None:
+        surprise = earnings["eps_surprise"]
+        surprise_score = clamp(50 + (surprise / 0.10) * 50)
+        parts.append((surprise_score, 60))
+        notes.append("Latest EPS surprise: {:+.1%}".format(surprise))
+
+    sentiment = headline_sentiment(news_items)
+    if sentiment is not None:
+        sentiment_score = clamp(50 + sentiment * 50)
+        parts.append((sentiment_score, 40))
+        label = "positive" if sentiment > 0.15 else "negative" if sentiment < -0.15 else "mixed / neutral"
+        notes.append("Recent headline tone: {}".format(label))
+
+    return weighted_available(parts), notes
+
+
+def market_reaction(technical, fund_score, evt_score):
+    data = technical["data"]
+    close = data["Close"].dropna()
+    volume = data["Volume"].dropna()
+    if len(close) < 25:
+        return None
+
+    ret1 = float(close.iloc[-1] / close.iloc[-2] - 1)
+    ret3 = float(close.iloc[-1] / close.iloc[-4] - 1)
+    vol20 = float(close.pct_change().rolling(20).std().iloc[-1])
+    z = ret1 / vol20 if np.isfinite(vol20) and vol20 > 0 else 0.0
+
+    avg_volume = volume.rolling(20).mean().iloc[-1]
+    volume_ratio = float(volume.iloc[-1] / avg_volume) if np.isfinite(avg_volume) and avg_volume > 0 else 1.0
+
+    evt = evt_score if evt_score is not None else 50
+    fund = fund_score if fund_score is not None else 50
+    rsi = technical["rsi"]
+
+    direction = "NONE"
+    strength = "LOW"
+    opportunity_score = 50.0
+    notes = ["No clear event/price divergence detected"]
+
+    if z <= -2.0 and (evt >= 55 or fund >= 60):
+        direction = "NEGATIVE"
+        raw = abs(z) * 15 + max(evt - 50, 0) * 0.5 + max(fund - 50, 0) * 0.25
+        if rsi < 35:
+            raw += 15
+        if volume_ratio >= 1.5:
+            raw += 10
+        strength = "HIGH" if raw >= 70 else "MEDIUM" if raw >= 45 else "LOW"
+        opportunity_score = 90 if strength == "HIGH" else 72 if strength == "MEDIUM" else 60
+        notes = ["Large downside move relative to normal volatility"]
+        if rsi < 35:
+            notes.append("RSI is oversold")
+        if evt >= 55:
+            notes.append("Recent earnings/news context is not strongly negative")
+        if fund >= 60:
+            notes.append("Fundamental score remains relatively strong")
+
+    elif z >= 2.0 and (evt <= 45 or fund <= 50 or rsi > 75):
+        direction = "POSITIVE"
+        raw = abs(z) * 15
+        if rsi > 75:
+            raw += 20
+        if volume_ratio >= 1.5:
+            raw += 10
+        strength = "HIGH" if raw >= 70 else "MEDIUM" if raw >= 45 else "LOW"
+        opportunity_score = 15 if strength == "HIGH" else 30 if strength == "MEDIUM" else 40
+        notes = ["Large upside move relative to normal volatility"]
+        if rsi > 75:
+            notes.append("RSI is very high / potentially overbought")
+        if evt <= 45:
+            notes.append("Recent event/news context does not strongly support the move")
+
+    return {
+        "one_day_return": ret1,
+        "three_day_return": ret3,
+        "reaction_z": z,
+        "volume_ratio": volume_ratio,
+        "direction": direction,
+        "strength": strength,
+        "opportunity_score": opportunity_score,
+        "notes": notes,
+    }
+
+
+def hybrid_score(technical_score_value, fundamental_score_value, event_score_value, reaction_score_value):
+    parts = [(technical_score_value, 40)]
+    if fundamental_score_value is not None:
+        parts.append((fundamental_score_value, 25))
+    if event_score_value is not None:
+        parts.append((event_score_value, 20))
+    if reaction_score_value is not None:
+        parts.append((reaction_score_value, 15))
+    return weighted_available(parts)
+
+
+def label_from_score(score):
+    if score >= STRONG_BUY_THRESHOLD:
+        return "STRONG BUY"
+    if score >= BUY_THRESHOLD:
+        return "BUY"
+    if score >= HOLD_THRESHOLD:
+        return "HOLD"
+    if score >= SELL_THRESHOLD:
+        return "SELL"
+    return "STRONG SELL"
+
+
+def build_feature_frame(data):
+    close = data["Close"].astype(float)
+    volume = data["Volume"].astype(float)
+    ma20 = close.rolling(20).mean()
+    ma50 = close.rolling(50).mean()
+    ma200 = close.rolling(200).mean()
+
+    features = pd.DataFrame(index=data.index)
+    features["return_1m"] = close.pct_change(21)
+    features["return_3m"] = close.pct_change(63)
+    features["return_6m"] = close.pct_change(126)
+    features["rsi"] = calculate_rsi(close)
+    features["distance_ma20"] = close / ma20 - 1
+    features["distance_ma50"] = close / ma50 - 1
+    features["distance_ma200"] = close / ma200 - 1
+    features["volatility_21d"] = close.pct_change().rolling(21).std() * np.sqrt(252)
+    features["volume_change_21d"] = volume / volume.rolling(21).mean() - 1
+    return features
+
+
+def build_training_dataset(data, horizon_days):
+    features = build_feature_frame(data)
+    close = data["Close"].astype(float)
+    features["target"] = close.shift(-horizon_days) / close - 1
+    return features.dropna()
+
+
+def train_forecast_model(dataset):
+    if len(dataset) < 300:
+        return None
+
+    X = dataset[FEATURE_COLUMNS]
+    y = dataset["target"]
+    split = int(len(dataset) * 0.80)
+    X_train, X_test = X.iloc[:split], X.iloc[split:]
+    y_train, y_test = y.iloc[:split], y.iloc[split:]
+
+    if len(X_train) < 200 or len(X_test) < 30:
+        return None
+
+    model = RandomForestRegressor(
+        n_estimators=150,
+        max_depth=8,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1,
+    )
+    model.fit(X_train, y_train)
+    pred = model.predict(X_test)
+
+    mae = float(mean_absolute_error(y_test, pred))
+    direction_acc = float(np.mean(np.sign(y_test.to_numpy()) == np.sign(pred)))
+    baseline_acc = float(np.mean(y_test.to_numpy() > 0))
+
+    model.fit(X, y)
+    return model, mae, direction_acc, baseline_acc
+
+
+def predict_horizon(data, horizon_days):
+    dataset = build_training_dataset(data, horizon_days)
+    trained = train_forecast_model(dataset)
+    if trained is None:
+        return None
+
+    model, mae, direction_acc, baseline_acc = trained
+    current = build_feature_frame(data)[FEATURE_COLUMNS].dropna()
+    if current.empty:
+        return None
+
+    row = current.iloc[[-1]]
+    predicted_return = float(model.predict(row)[0])
+    current_price = float(data["Close"].dropna().iloc[-1])
+
+    return {
+        "predicted_return": predicted_return,
+        "estimated_price": current_price * (1 + predicted_return),
+        "mae": mae,
+        "directional_accuracy": direction_acc,
+        "baseline_accuracy": baseline_acc,
+    }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def run_all_forecasts(ticker):
+    data = download_data(ticker)
+    if data is None:
+        return {}
+    return {label: predict_horizon(data, days) for label, days in HORIZONS.items()}
+
+
+with st.sidebar:
+    st.markdown("### Featured Picks")
+    st.caption("Quick-launch a stock from your watchlist.")
+    for symbol, company in FEATURED_STOCKS:
+        st.button(
+            "{} — {}".format(symbol, company),
+            key="featured_" + symbol,
+            on_click=choose_ticker,
+            args=(symbol,),
+            use_container_width=True,
+        )
+    st.divider()
+    if st.button("🔄 Refresh cached data", use_container_width=True):
+        st.cache_data.clear()
+    st.caption("Featured picks are a static watchlist, not guaranteed winners.")
+
+
+ticker = st.text_input(
+    "Ticker",
+    placeholder="AAPL",
+    max_chars=12,
+    key="ticker_input",
+).strip().upper()
+
+analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
+should_analyze = analyze_clicked or st.session_state.get("auto_analyze", False)
+
+
+if should_analyze:
+    st.session_state["auto_analyze"] = False
+
+    if not ticker:
+        st.warning("Enter a ticker first.")
+    else:
+        with st.spinner("Pulling price, fundamentals, earnings, and news..."):
+            technical = technical_analysis(ticker)
+            fundamentals = download_fundamentals(ticker)
+            earnings = download_latest_earnings(ticker)
+            news_items = download_news(ticker)
+
+        if technical is None:
+            st.error("Could not analyze that ticker.")
+        else:
+            fund_score, fund_notes = fundamental_score(fundamentals)
+            evt_score, evt_notes = event_score(earnings, news_items)
+            reaction = market_reaction(technical, fund_score, evt_score)
+            reaction_score = reaction["opportunity_score"] if reaction is not None else None
+
+            overall = hybrid_score(
+                technical["technical_score"],
+                fund_score,
+                evt_score,
+                reaction_score,
+            )
+            label = label_from_score(overall)
+
+            company_name = fundamentals.get("company_name") if fundamentals else None
+
+            signal_class = "signal-" + label.lower().replace(" ", "-")
+            display_company = company_name if company_name else "Market analysis"
+            st.markdown(
+                """
+                <div class="stock-hero">
+                    <div>
+                        <div class="stock-kicker">Current analysis</div>
+                        <div class="stock-name">{ticker}</div>
+                        <div class="stock-company">{company}</div>
+                    </div>
+                    <div class="signal-pill {signal_class}">{label}</div>
+                </div>
+                """.format(
+                    ticker=ticker,
+                    company=display_company,
+                    signal_class=signal_class,
+                    label=label,
+                ),
+                unsafe_allow_html=True,
+            )
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Hybrid Signal", label)
+            c2.metric("Overall Score", "{:.1f}/100".format(overall))
+            c3.metric("Current Price", "${:.2f}".format(technical["price"]))
+            st.caption("A blended view of technicals, fundamentals, earnings/news, and market reaction.")
+
+            st.divider()
+            st.subheader("Score Breakdown")
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Technical", "{:.0f}/100".format(technical["technical_score"]))
+            b2.metric("Fundamentals", "{:.0f}/100".format(fund_score) if fund_score is not None else "N/A")
+            b3.metric("Earnings / News", "{:.0f}/100".format(evt_score) if evt_score is not None else "N/A")
+            b4.metric("Reaction", "{:.0f}/100".format(reaction_score) if reaction_score is not None else "N/A")
+
+            st.subheader("Technical Picture")
+            t1, t2, t3 = st.columns(3)
+            t1.metric("1 Month", "{:+.1%}".format(technical["return_1m"]))
+            t2.metric("3 Months", "{:+.1%}".format(technical["return_3m"]))
+            t3.metric("6 Months", "{:+.1%}".format(technical["return_6m"]))
+            t4, t5, t6 = st.columns(3)
+            t4.metric("RSI", "{:.1f}".format(technical["rsi"]))
+            t5.metric("Annualized Volatility", "{:.1%}".format(technical["annualized_volatility"]))
+            t6.metric("Max Drawdown", "{:.1%}".format(technical["max_drawdown"]))
+            st.line_chart(technical["chart"].tail(504), use_container_width=True)
+
+            st.subheader("Fundamentals")
+            if not fundamentals:
+                st.warning("Fundamental data was unavailable.")
+            else:
+                f1, f2, f3, f4 = st.columns(4)
+                rev = fundamentals.get("revenue_growth")
+                eg = fundamentals.get("earnings_growth")
+                pm = fundamentals.get("profit_margin")
+                pe = fundamentals.get("forward_pe")
+                f1.metric("Revenue Growth", "{:+.1%}".format(rev) if rev is not None else "N/A")
+                f2.metric("Earnings Growth", "{:+.1%}".format(eg) if eg is not None else "N/A")
+                f3.metric("Profit Margin", "{:.1%}".format(pm) if pm is not None else "N/A")
+                f4.metric("Forward P/E", "{:.1f}".format(pe) if pe is not None else "N/A")
+                for note in fund_notes:
+                    st.write("• " + note)
+
+            st.subheader("Earnings & News Context")
+            if earnings is not None:
+                e1, e2, e3 = st.columns(3)
+                e1.metric("Latest Earnings", earnings.get("date", "N/A"))
+                reported = earnings.get("reported_eps")
+                surprise = earnings.get("eps_surprise")
+                e2.metric("Reported EPS", "{:.2f}".format(reported) if reported is not None else "N/A")
+                e3.metric("EPS Surprise", "{:+.1%}".format(surprise) if surprise is not None else "N/A")
+            for note in evt_notes:
+                st.write("• " + note)
+
+            if news_items:
+                st.markdown("#### Recent Headlines")
+                for item in news_items[:6]:
+                    suffix = " — " + item["publisher"] if item["publisher"] else ""
+                    if item["url"]:
+                        st.markdown("- [{}]({}){}".format(item["title"], item["url"], suffix))
+                    else:
+                        st.write("• " + item["title"] + suffix)
+            else:
+                st.caption("No recent headline data was returned.")
+
+            st.subheader("Market Reaction / Overreaction Detector")
+            if reaction is None:
+                st.warning("Not enough data to evaluate the latest reaction.")
+            else:
+                r1, r2, r3, r4 = st.columns(4)
+                r1.metric("1-Day Move", "{:+.1%}".format(reaction["one_day_return"]))
+                r2.metric("3-Day Move", "{:+.1%}".format(reaction["three_day_return"]))
+                r3.metric("Move vs Normal", "{:+.1f}×".format(reaction["reaction_z"]))
+                r4.metric("Volume vs 20D Avg", "{:.1f}×".format(reaction["volume_ratio"]))
+
+                if reaction["direction"] == "NEGATIVE":
+                    st.warning("Possible NEGATIVE overreaction: {}".format(reaction["strength"]))
+                elif reaction["direction"] == "POSITIVE":
+                    st.warning("Possible POSITIVE overreaction: {}".format(reaction["strength"]))
+                else:
+                    st.info("No clear overreaction signal.")
+
+                for note in reaction["notes"]:
+                    st.write("• " + note)
+
+            st.divider()
+            st.subheader("Historical ML Forecasts")
+            st.caption(
+                "The ML model is trained on historical price/volume features. "
+                "Current news/fundamentals affect the hybrid score, not the historical training set."
+            )
+
+            with st.spinner("Training forecast models..."):
+                forecasts = run_all_forecasts(ticker)
+
+            for horizon_label in HORIZONS:
+                forecast = forecasts.get(horizon_label)
+                st.markdown("### " + horizon_label)
+                if forecast is None:
+                    st.warning("Not enough valid historical data for this forecast.")
+                    continue
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Predicted Return", "{:+.1%}".format(forecast["predicted_return"]))
+                m2.metric("Estimated Model Price", "${:.2f}".format(forecast["estimated_price"]))
+                m3.metric("Historical Direction Accuracy", "{:.1%}".format(forecast["directional_accuracy"]))
+                m4.metric("Historical MAE", "{:.1%}".format(forecast["mae"]))
+                st.caption("Always-up baseline: {:.1%}".format(forecast["baseline_accuracy"]))
+                if forecast["directional_accuracy"] <= forecast["baseline_accuracy"]:
+                    st.caption("⚠️ This forecast did not beat the simple always-up baseline.")
+
+            st.divider()
+            st.info(
+                "Research experiment only. The hybrid score combines technical, fundamental, "
+                "earnings/news, and reaction heuristics. ML forecasts use historical price/volume patterns."
+            )
