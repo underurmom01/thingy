@@ -11,7 +11,7 @@ import time
 import shutil
 
 
-st.set_page_config(page_title="Stock Signal Lab v11", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v12", page_icon="📈", layout="wide")
 
 
 
@@ -572,8 +572,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v11</div>
-        <h1>Stock Signal Lab <span>v11</span></h1>
+        <div class="app-eyebrow">Signal research · v12</div>
+        <h1>Stock Signal Lab <span>v12</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -3230,7 +3230,115 @@ def portfolio_snapshot(
         "mae": mae,
         "daily_returns":
             daily_returns,
+        "analysis_depth":
+            "Full",
     }
+
+
+def technical_fallback_snapshot(
+    ticker,
+    company_name,
+    sector,
+    technical,
+    quick_score=None,
+):
+    """
+    Build a portfolio-compatible snapshot from price data only.
+
+    This is a fallback, not a replacement for full analysis. It is used when
+    metadata/news/earnings/ML are unavailable or when a very large requested
+    portfolio would otherwise take too long to fully analyze.
+    """
+    if technical is None:
+        return None
+
+    technical_score_value = safe_float(
+        technical.get(
+            "technical_score"
+        )
+    )
+
+    quick_score_value = safe_float(
+        quick_score
+    )
+
+    if technical_score_value is None:
+        return None
+
+    if quick_score_value is None:
+        quick_score_value = (
+            technical_score_value
+        )
+
+    # Conservative score: price-based evidence only.
+    overall = clamp(
+        0.70
+        * technical_score_value
+        + 0.30
+        * quick_score_value
+    )
+
+    close = (
+        technical["data"]
+        ["Close"]
+        .dropna()
+    )
+
+    daily_returns = (
+        close
+        .pct_change()
+        .dropna()
+        .tail(252)
+    )
+
+    return {
+        "ticker": ticker,
+        "company_name":
+            company_name
+            or ticker,
+        "sector":
+            sector
+            or "Unknown",
+        "price":
+            technical["price"],
+        "overall_score":
+            overall,
+        "signal":
+            label_from_score(
+                overall
+            ),
+        "technical_score":
+            technical_score_value,
+        "fundamental_score":
+            None,
+        "event_score":
+            None,
+        "reaction_score":
+            None,
+        "ml_score":
+            None,
+        "ml_reliability":
+            0.0,
+        "ml_guardrail_note":
+            None,
+        "volatility":
+            technical[
+                "annualized_volatility"
+            ],
+        "predicted_return_3m":
+            None,
+        "directional_accuracy":
+            None,
+        "baseline_accuracy":
+            None,
+        "mae":
+            None,
+        "daily_returns":
+            daily_returns,
+        "analysis_depth":
+            "Technical fallback",
+    }
+
 
 
 PORTFOLIO_PROFILES = {
@@ -3949,7 +4057,7 @@ st.divider()
 st.subheader("AI Portfolio Builder")
 st.caption(
     "All-sector mode starts from the broad U.S.-listed stock market. "
-    "v10 batch-loads price history, uses a multi-stage funnel, and locally caches market data so repeat runs are much faster."
+    "v12 builds a complete price-based candidate pool first, then upgrades the strongest names with slower fundamentals/news/ML so temporary API failures cannot shrink the portfolio."
 )
 
 st.caption(
@@ -4174,9 +4282,12 @@ with st.expander(
             )
 
             # -------------------------------------------------
-            # Cheap deeper technical pass before expensive API calls
+            # Build a large pool of valid price-based candidates.
+            # These are enough to construct a COMPLETE portfolio even
+            # if some slower metadata/news/ML calls fail.
             # -------------------------------------------------
             technical_rows = []
+            technical_map = {}
             technical_failures = []
 
             for _, row in finalists.iterrows():
@@ -4200,8 +4311,10 @@ with st.expander(
                     )
                     continue
 
-                # Blend the whole-market quick score with a deeper technical
-                # score from up to 10 years of cached history.
+                technical_map[
+                    symbol
+                ] = technical
+
                 shortlist_score = (
                     0.52
                     * float(
@@ -4266,28 +4379,106 @@ with st.expander(
 
             if technical_table.empty:
                 st.error(
-                    "No candidates had enough usable price history for deeper analysis."
+                    "No candidates had enough usable price history for portfolio construction."
                 )
                 st.stop()
 
-            # Expensive metadata/news/ML is reserved for a smaller group.
-            # The requested number of holdings is always respected.
-            full_analysis_limit = min(
+            if len(technical_table) < holdings_count:
+                st.warning(
+                    "You requested {} holdings, but only {} candidates currently have usable price history. "
+                    "The portfolio will use all {} available candidates.".format(
+                        holdings_count,
+                        len(technical_table),
+                        len(technical_table),
+                    )
+                )
+
+            effective_holdings_count = min(
+                holdings_count,
+                len(
+                    technical_table
+                ),
+            )
+
+            # -------------------------------------------------
+            # Create a technical fallback pool FIRST.
+            # This is the key reliability change in v12.
+            # -------------------------------------------------
+            selection_pool_size = min(
                 len(
                     technical_table
                 ),
                 max(
-                    holdings_count,
-                    40,
+                    100,
+                    effective_holdings_count
+                    * 4,
+                ),
+            )
+
+            selection_pool = (
+                technical_table
+                .head(
+                    selection_pool_size
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+            snapshot_by_ticker = {}
+
+            for _, row in selection_pool.iterrows():
+                symbol = row[
+                    "Ticker"
+                ]
+
+                fallback = technical_fallback_snapshot(
+                    symbol,
+                    row.get(
+                        "Company",
+                        symbol,
+                    ),
+                    row.get(
+                        "Sector",
+                        "Unknown",
+                    ),
+                    technical_map.get(
+                        symbol
+                    ),
+                    quick_score=
+                        row.get(
+                            "Quick Score"
+                        ),
+                )
+
+                if fallback is not None:
+                    snapshot_by_ticker[
+                        symbol
+                    ] = fallback
+
+            # -------------------------------------------------
+            # Stage 2B: upgrade the strongest subset to FULL analysis.
+            #
+            # Small portfolios: enough fully analyzed names for choice.
+            # Large portfolios: cap expensive work so the app can finish.
+            # Any stock not upgraded remains a valid technical fallback.
+            # -------------------------------------------------
+            full_analysis_limit = min(
+                len(
+                    selection_pool
+                ),
+                max(
+                    24,
                     min(
-                        160,
-                        holdings_count * 4,
+                        80,
+                        effective_holdings_count
+                        * 2,
                     ),
                 ),
             )
 
             deep_finalists = (
-                technical_table
+                selection_pool
                 .head(
                     full_analysis_limit
                 )
@@ -4297,9 +4488,16 @@ with st.expander(
             )
 
             st.caption(
-                "{} price candidates → {} full fundamentals/news/ML finalists.".format(
-                    len(finalists),
-                    len(deep_finalists),
+                "{} valid price candidates → {} full fundamentals/news/ML upgrades → complete portfolio fallback pool of {}.".format(
+                    len(
+                        technical_table
+                    ),
+                    len(
+                        deep_finalists
+                    ),
+                    len(
+                        snapshot_by_ticker
+                    ),
                 )
             )
 
@@ -4313,10 +4511,6 @@ with st.expander(
                     hide_index=True,
                 )
 
-            # -------------------------------------------------
-            # Stage 2B: expensive full analysis
-            # -------------------------------------------------
-            snapshots = []
             failures = []
 
             progress = st.progress(0)
@@ -4332,7 +4526,7 @@ with st.expander(
                 ]
 
                 status.caption(
-                    "Stage 2B/2 — fundamentals, news & ML for {} ({}/{})...".format(
+                    "Stage 2B/2 — upgrading {} with fundamentals, news & ML ({}/{})...".format(
                         symbol,
                         index + 1,
                         total,
@@ -4356,17 +4550,18 @@ with st.expander(
                             fast_ml=True,
                         )
                     )
-                except Exception as exc:
+                except Exception:
                     snapshot = None
 
                 if snapshot is None:
                     failures.append(
                         symbol
                     )
+                    # IMPORTANT: keep the already-created technical fallback.
                 else:
-                    snapshots.append(
-                        snapshot
-                    )
+                    snapshot_by_ticker[
+                        symbol
+                    ] = snapshot
 
                 progress.progress(
                     (index + 1)
@@ -4379,10 +4574,36 @@ with st.expander(
             status.empty()
             progress.empty()
 
-            # Correct v9's stale all-sector string.
+            # Preserve shortlist order while using upgraded snapshots where
+            # available.
+            snapshots = []
+
+            for _, row in selection_pool.iterrows():
+                symbol = row[
+                    "Ticker"
+                ]
+
+                item = (
+                    snapshot_by_ticker
+                    .get(symbol)
+                )
+
+                if item is not None:
+                    snapshots.append(
+                        item
+                    )
+
             diversify_sectors = (
                 sector_focus
                 == "All US-listed stocks (all sectors)"
+            )
+
+            # This should normally equal the user's requested number now.
+            holdings_count = min(
+                effective_holdings_count,
+                len(
+                    snapshots
+                ),
             )
 
             result = build_ai_portfolio(
@@ -4409,6 +4630,30 @@ with st.expander(
                         sector_focus
                     )
                 )
+
+                built_count = len(
+                    result[
+                        "holdings"
+                    ]
+                )
+
+                if built_count == requested_holdings:
+                    st.success(
+                        "Portfolio complete: {} of {} requested holdings.".format(
+                            built_count,
+                            requested_holdings,
+                        )
+                    )
+                else:
+                    st.warning(
+                        "Portfolio contains {} of {} requested holdings because only {} usable candidates were available.".format(
+                            built_count,
+                            requested_holdings,
+                            len(
+                                snapshots
+                            ),
+                        )
+                    )
 
                 m1, m2, m3 = st.columns(3)
 
@@ -4512,6 +4757,12 @@ with st.expander(
                             "Signal":
                                 holding["signal"],
 
+                            "Analysis":
+                                holding.get(
+                                    "analysis_depth",
+                                    "Full",
+                                ),
+
                             "3M ML Score":
                                 (
                                     "{:.0f}/100".format(
@@ -4598,7 +4849,11 @@ with st.expander(
                 )
 
                 st.write(
-                    "• The app batch-downloads and locally caches finalist price history, runs a cheap 10-year technical shortlist, then reserves fundamentals/news/Random Forest work for the strongest subset."
+                    "• The app batch-downloads and locally caches finalist price history, builds the full candidate pool first, then upgrades the strongest names with fundamentals/news/Random Forest analysis."
+                )
+
+                st.write(
+                    "• If a Yahoo fundamentals/news/ML request fails, the stock no longer disappears. It stays available as a clearly labeled Technical fallback so the requested portfolio can still be completed."
                 )
 
                 st.write(
@@ -4642,7 +4897,7 @@ with st.expander(
                             )
                         )
                         st.caption(
-                            "These names already passed the price-history stage, so failures here are usually temporary metadata/API issues rather than missing stocks."
+                            "These names were NOT removed from the candidate pool. v12 keeps their technical fallback instead of shrinking the portfolio."
                         )
 
                 st.info(
