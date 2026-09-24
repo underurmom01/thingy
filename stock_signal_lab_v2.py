@@ -8,9 +8,10 @@ import os
 import re
 import tempfile
 import time
+import shutil
 
 
-st.set_page_config(page_title="Stock Signal Lab v10", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v11", page_icon="📈", layout="wide")
 
 
 
@@ -226,6 +227,36 @@ def _write_screen_cache(sector_focus, data):
             temp_path.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+def clear_local_disk_cache():
+    """
+    Clear the on-disk cache as well as Streamlit's in-memory cache.
+    Useful after code/schema changes or if Yahoo returned malformed data.
+    """
+    try:
+        shutil.rmtree(
+            LOCAL_CACHE_ROOT,
+            ignore_errors=True,
+        )
+    except Exception:
+        pass
+
+    try:
+        for folder in [
+            "prices",
+            "json",
+            "screens",
+        ]:
+            (
+                LOCAL_CACHE_ROOT
+                / folder
+            ).mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+    except Exception:
+        pass
 
 
 @st.cache_resource(show_spinner=False)
@@ -541,8 +572,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v10</div>
-        <h1>Stock Signal Lab <span>v10</span></h1>
+        <div class="app-eyebrow">Signal research · v11</div>
+        <h1>Stock Signal Lab <span>v11</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -620,24 +651,209 @@ def clamp(value, low=0.0, high=100.0):
     return float(np.clip(value, low, high))
 
 
-def _clean_price_frame(data):
-    if data is None or not isinstance(data, pd.DataFrame) or data.empty:
+def _clean_price_frame(data, ticker=None):
+    """
+    Normalize the several DataFrame shapes yfinance can return.
+
+    yfinance may return:
+      - normal columns: Close, Open, High, Low, Volume
+      - MultiIndex: (Price, Ticker)
+      - MultiIndex: (Ticker, Price)
+
+    v10 assumed normal columns for single-ticker downloads, which caused
+    valid symbols to appear "missing" when yfinance returned a MultiIndex.
+    """
+    if (
+        data is None
+        or not isinstance(
+            data,
+            pd.DataFrame,
+        )
+        or data.empty
+    ):
         return None
 
     frame = data.copy()
 
-    # yfinance sometimes returns a timezone-aware index.
-    try:
-        if getattr(frame.index, "tz", None) is not None:
-            frame.index = frame.index.tz_localize(None)
-    except Exception:
-        pass
+    if isinstance(
+        frame.columns,
+        pd.MultiIndex,
+    ):
+        ticker_upper = (
+            str(ticker).upper()
+            if ticker
+            else None
+        )
 
-    frame = frame.sort_index()
-    frame = frame[~frame.index.duplicated(keep="last")]
+        level0 = [
+            str(x).upper()
+            for x in frame.columns.get_level_values(0)
+        ]
+        level1 = [
+            str(x).upper()
+            for x in frame.columns.get_level_values(1)
+        ]
+
+        # Shape: (Ticker, Price)
+        if (
+            ticker_upper
+            and ticker_upper in level0
+        ):
+            try:
+                frame = frame.xs(
+                    ticker,
+                    axis=1,
+                    level=0,
+                    drop_level=True,
+                )
+            except Exception:
+                # Case-insensitive fallback.
+                matching = [
+                    x
+                    for x in frame.columns.get_level_values(0).unique()
+                    if str(x).upper()
+                    == ticker_upper
+                ]
+                if matching:
+                    frame = frame.xs(
+                        matching[0],
+                        axis=1,
+                        level=0,
+                        drop_level=True,
+                    )
+
+        # Shape: (Price, Ticker)
+        elif (
+            ticker_upper
+            and ticker_upper in level1
+        ):
+            try:
+                frame = frame.xs(
+                    ticker,
+                    axis=1,
+                    level=1,
+                    drop_level=True,
+                )
+            except Exception:
+                matching = [
+                    x
+                    for x in frame.columns.get_level_values(1).unique()
+                    if str(x).upper()
+                    == ticker_upper
+                ]
+                if matching:
+                    frame = frame.xs(
+                        matching[0],
+                        axis=1,
+                        level=1,
+                        drop_level=True,
+                    )
+
+        # Single-symbol MultiIndex. Detect which level contains OHLCV names.
+        else:
+            price_names = {
+                "OPEN",
+                "HIGH",
+                "LOW",
+                "CLOSE",
+                "ADJ CLOSE",
+                "VOLUME",
+            }
+
+            unique0 = {
+                str(x).upper()
+                for x in frame.columns.get_level_values(0).unique()
+            }
+            unique1 = {
+                str(x).upper()
+                for x in frame.columns.get_level_values(1).unique()
+            }
+
+            if unique0.intersection(
+                price_names
+            ):
+                try:
+                    frame.columns = (
+                        frame.columns
+                        .get_level_values(0)
+                    )
+                except Exception:
+                    return None
+
+            elif unique1.intersection(
+                price_names
+            ):
+                try:
+                    frame.columns = (
+                        frame.columns
+                        .get_level_values(1)
+                    )
+                except Exception:
+                    return None
+
+            else:
+                return None
+
+    # Clean duplicate columns after flattening.
+    if frame.columns.duplicated().any():
+        frame = frame.loc[
+            :,
+            ~frame.columns.duplicated(),
+        ]
+
+    # Normalize column names while preserving expected capitalization.
+    rename_map = {}
+
+    for col in frame.columns:
+        text = str(col).strip()
+        upper = text.upper()
+
+        canonical = {
+            "OPEN": "Open",
+            "HIGH": "High",
+            "LOW": "Low",
+            "CLOSE": "Close",
+            "ADJ CLOSE": "Adj Close",
+            "VOLUME": "Volume",
+        }.get(upper)
+
+        if canonical:
+            rename_map[col] = canonical
+
+    if rename_map:
+        frame = frame.rename(
+            columns=rename_map
+        )
 
     if "Close" not in frame.columns:
         return None
+
+    try:
+        if (
+            getattr(
+                frame.index,
+                "tz",
+                None,
+            )
+            is not None
+        ):
+            frame.index = (
+                frame.index
+                .tz_localize(None)
+            )
+    except Exception:
+        pass
+
+    frame = (
+        frame
+        .sort_index()
+    )
+
+    frame = frame[
+        ~frame.index.duplicated(
+            keep="last"
+        )
+    ]
 
     frame = frame[
         frame["Close"].notna()
@@ -646,8 +862,6 @@ def _clean_price_frame(data):
     if frame.empty:
         return None
 
-    # Keep the rest of the app alive even when a listing has no reported
-    # volume field. ML can simply become unavailable for that ticker.
     if "Volume" not in frame.columns:
         frame["Volume"] = np.nan
 
@@ -657,24 +871,34 @@ def _clean_price_frame(data):
 def _fetch_single_history(ticker):
     yf = get_yfinance()
 
-    # Two attempts are enough to recover a surprising number of temporary
-    # Yahoo/yfinance failures without making a bad ticker stall the app.
+    symbol = normalize_yahoo_symbol(
+        ticker
+    )
+
+    if symbol is None:
+        return None
+
+    # First use Ticker.history because it normally returns simple OHLCV
+    # columns for a single symbol.
     for attempt in range(2):
         try:
-            data = yf.download(
-                tickers=ticker,
-                period="10y",
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
+            data = (
+                yf.Ticker(symbol)
+                .history(
+                    period="10y",
+                    interval="1d",
+                    auto_adjust=True,
+                )
             )
 
-            data = _clean_price_frame(data)
+            data = _clean_price_frame(
+                data,
+                ticker=symbol,
+            )
 
             if data is not None:
                 _write_price_cache(
-                    ticker,
+                    symbol,
                     data,
                 )
                 return data
@@ -683,29 +907,67 @@ def _fetch_single_history(ticker):
             pass
 
         if attempt == 0:
-            time.sleep(0.35)
+            time.sleep(0.25)
+
+    # Fallback to yf.download. Some yfinance versions return a MultiIndex
+    # even for one ticker; _clean_price_frame handles that shape now.
+    for attempt in range(2):
+        try:
+            data = yf.download(
+                tickers=symbol,
+                period="10y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+                group_by="column",
+            )
+
+            data = _clean_price_frame(
+                data,
+                ticker=symbol,
+            )
+
+            if data is not None:
+                _write_price_cache(
+                    symbol,
+                    data,
+                )
+                return data
+
+        except Exception:
+            pass
+
+        if attempt == 0:
+            time.sleep(0.25)
 
     return None
 
 
 def download_data(ticker, force_refresh=False):
     """
-    Price history now uses a local disk cache first.
-
-    This fixes two problems from v9:
-    1. the same ticker no longer gets re-downloaded on every rerun;
-    2. a failed Yahoo request is not permanently cached as None.
+    Read normalized price history from disk first, then Yahoo if needed.
     """
+    symbol = normalize_yahoo_symbol(
+        ticker
+    )
+
+    if symbol is None:
+        return None
+
     if not force_refresh:
         cached = _read_price_cache(
-            ticker
+            symbol
         )
 
         if cached is not None:
-            return cached
+            return _clean_price_frame(
+                cached,
+                ticker=symbol,
+            )
 
     return _fetch_single_history(
-        ticker
+        symbol
     )
 
 
@@ -2464,6 +2726,35 @@ def _select_fast_finalists(
     )
 
 
+def _extract_close_series(
+    batch,
+    ticker,
+):
+    frame = _clean_price_frame(
+        batch,
+        ticker=ticker,
+    )
+
+    if (
+        frame is None
+        or "Close"
+        not in frame.columns
+    ):
+        return None
+
+    close = frame["Close"]
+
+    if isinstance(
+        close,
+        pd.DataFrame,
+    ):
+        if close.shape[1] < 1:
+            return None
+        close = close.iloc[:, 0]
+
+    return close.dropna()
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def fast_screen_sector(
     sector_focus,
@@ -2560,12 +2851,13 @@ def fast_screen_sector(
 
         for ticker in chunk:
             try:
-                if len(chunk) == 1:
-                    close = batch["Close"]
-                else:
-                    close = (
-                        batch[ticker]["Close"]
-                    )
+                close = _extract_close_series(
+                    batch,
+                    ticker,
+                )
+
+                if close is None:
+                    continue
 
                 quick = quick_screen_score(
                     close
@@ -2629,31 +2921,22 @@ def _extract_batch_history(
     ticker,
     chunk_length,
 ):
-    try:
-        if (
-            isinstance(
-                batch.columns,
-                pd.MultiIndex,
-            )
-            and ticker
-            in batch.columns.get_level_values(0)
-        ):
-            frame = batch[
-                ticker
-            ].copy()
-
-        elif chunk_length == 1:
-            frame = batch.copy()
-
-        else:
-            return None
-
-        return _clean_price_frame(
-            frame
+    if (
+        batch is None
+        or not isinstance(
+            batch,
+            pd.DataFrame,
         )
-
-    except Exception:
+        or batch.empty
+    ):
         return None
+
+    # Delegate all MultiIndex handling to the same normalizer used for
+    # single-ticker downloads.
+    return _clean_price_frame(
+        batch,
+        ticker=ticker,
+    )
 
 
 def prefetch_price_histories(tickers):
@@ -3431,6 +3714,8 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 Refresh cached data", use_container_width=True):
         st.cache_data.clear()
+        clear_local_disk_cache()
+        st.success("In-memory and local disk caches cleared.")
     st.caption("Featured picks are a static watchlist, not guaranteed winners.")
 
 
@@ -3440,6 +3725,14 @@ ticker = st.text_input(
     max_chars=12,
     key="ticker_input",
 ).strip().upper()
+
+ticker = (
+    normalize_yahoo_symbol(
+        ticker
+    )
+    if ticker
+    else ""
+)
 
 analyze_clicked = st.button("Analyze", type="primary", use_container_width=True)
 should_analyze = analyze_clicked or st.session_state.get("auto_analyze", False)
@@ -3458,7 +3751,7 @@ if should_analyze:
             news_items = download_news(ticker)
 
         if technical is None:
-            st.error("Could not analyze that ticker.")
+            st.error("Could not load usable price history for that ticker. Try Refresh cached data once; if it still fails, Yahoo may not currently expose that symbol.")
         else:
             fund_score, fund_notes = fundamental_score(fundamentals)
             evt_score, evt_notes = event_score(earnings, news_items)
