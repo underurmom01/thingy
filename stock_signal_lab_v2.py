@@ -1,15 +1,20 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import numpy as np
-import requests
-from io import StringIO
-
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
 
 
-st.set_page_config(page_title="Stock Signal Lab v6", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v9", page_icon="📈", layout="wide")
+
+
+@st.cache_resource(show_spinner=False)
+def get_yfinance():
+    """
+    Import yfinance only after the user actually requests market data.
+    This keeps the initial Streamlit page render lighter.
+    """
+    import yfinance as yf
+    return yf
+
 
 # =========================================================
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
@@ -314,8 +319,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v6</div>
-        <h1>Stock Signal Lab <span>v6</span></h1>
+        <div class="app-eyebrow">Signal research · v9</div>
+        <h1>Stock Signal Lab <span>v9</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -396,6 +401,7 @@ def clamp(value, low=0.0, high=100.0):
 @st.cache_data(ttl=3600, show_spinner=False)
 def download_data(ticker):
     try:
+        yf = get_yfinance()
         data = yf.Ticker(ticker).history(period="10y", interval="1d", auto_adjust=True)
         if data is None or data.empty:
             return None
@@ -411,6 +417,7 @@ def download_data(ticker):
 @st.cache_data(ttl=3600, show_spinner=False)
 def download_fundamentals(ticker):
     try:
+        yf = get_yfinance()
         info = yf.Ticker(ticker).info
         if not isinstance(info, dict):
             return {}
@@ -431,6 +438,7 @@ def download_fundamentals(ticker):
 @st.cache_data(ttl=3600, show_spinner=False)
 def download_latest_earnings(ticker):
     try:
+        yf = get_yfinance()
         earnings = yf.Ticker(ticker).get_earnings_dates(limit=8)
         if earnings is None or earnings.empty:
             return None
@@ -507,6 +515,7 @@ def parse_news_item(item):
 @st.cache_data(ttl=1800, show_spinner=False)
 def download_news(ticker):
     try:
+        yf = get_yfinance()
         raw = yf.Ticker(ticker).news
         if not raw:
             return []
@@ -1106,6 +1115,11 @@ def train_forecast_model(dataset):
     if len(dataset) < 300:
         return None
 
+    # scikit-learn is one of the heavier imports in the app.
+    # Delay it until a forecast is actually requested.
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.metrics import mean_absolute_error
+
     X = dataset[FEATURE_COLUMNS]
     y = dataset["target"]
     split = int(len(dataset) * 0.80)
@@ -1174,7 +1188,7 @@ def run_all_forecasts(ticker):
 # =========================================================
 
 SECTOR_OPTIONS = [
-    "All sectors (diversified)",
+    "All US-listed stocks (all sectors)",
     "Information Technology",
     "Health Care",
     "Financials",
@@ -1186,255 +1200,561 @@ SECTOR_OPTIONS = [
     "Utilities",
     "Real Estate",
     "Materials",
+    "Other / Miscellaneous",
 ]
 
-# Fallback universe used only if the live S&P 500 constituent table
-# cannot be loaded. It keeps the deployed app usable.
-FALLBACK_SECTOR_UNIVERSE = {
-    "Information Technology": [
-        "AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "ADBE",
-        "QCOM", "TXN", "INTU", "NOW", "MU", "AMAT", "LRCX", "ADI",
-        "KLAC", "SNPS", "CDNS", "PANW", "CRWD", "FTNT", "NXPI", "MCHP",
-        "APH", "TEL", "ANET", "IBM", "ACN", "GLW", "KEYS", "ON",
-    ],
-    "Health Care": [
-        "LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG",
-        "AMGN", "GILD", "VRTX", "SYK", "BSX", "MDT", "CI", "CVS",
-        "ELV", "ZTS", "REGN", "BDX", "EW", "A", "IDXX", "IQV",
-        "HCA", "MCK", "COR", "CAH", "BAX", "RMD",
-    ],
-    "Financials": [
-        "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
-        "AXP", "BLK", "SPGI", "C", "SCHW", "PGR", "MMC", "CB",
-        "AON", "ICE", "CME", "USB", "PNC", "TFC", "AFL", "MET",
-        "PRU", "COF", "BK", "STT", "MCO", "AJG",
-    ],
-    "Consumer Discretionary": [
-        "AMZN", "TSLA", "HD", "MCD", "BKNG", "TJX", "LOW", "NKE",
-        "SBUX", "ORLY", "MAR", "GM", "F", "CMG", "ROST", "AZO",
-        "DHI", "LEN", "YUM", "DRI", "ULTA", "BBY", "GPC", "TSCO",
-        "LULU", "NVR", "RCL", "CCL", "EXPE", "EBAY",
-    ],
-    "Communication Services": [
-        "META", "GOOGL", "GOOG", "NFLX", "TMUS", "DIS", "VZ", "T",
-        "CMCSA", "CHTR", "EA", "TTWO", "WBD", "OMC", "LYV", "MTCH",
-        "IPG", "FOXA", "FOX", "PARA",
-    ],
-    "Industrials": [
-        "GE", "CAT", "RTX", "UNP", "HON", "ETN", "BA", "DE",
-        "LMT", "UPS", "WM", "PH", "GD", "EMR", "MMM", "ITW",
-        "CSX", "NSC", "FDX", "JCI", "PCAR", "CMI", "FAST", "ODFL",
-        "RSG", "URI", "PWR", "AME", "IR", "ROK", "HWM", "GWW",
-    ],
-    "Consumer Staples": [
-        "WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ",
-        "CL", "KMB", "SYY", "KDP", "TGT", "KR", "GIS", "KHC",
-        "HSY", "STZ", "MKC", "CLX", "CHD", "SJM", "CPB", "ADM",
-    ],
-    "Energy": [
-        "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "WMB",
-        "OKE", "VLO", "KMI", "OXY", "HAL", "DVN", "FANG", "BKR",
-        "HES", "APA", "EQT", "CTRA", "TRGP", "TPL",
-    ],
-    "Utilities": [
-        "NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "EXC",
-        "XEL", "PEG", "ED", "ETR", "WEC", "ES", "DTE", "FE",
-        "PPL", "AEE", "ATO", "CMS", "CNP", "NI", "EVRG", "LNT",
-    ],
-    "Real Estate": [
-        "PLD", "AMT", "EQIX", "WELL", "SPG", "O", "DLR", "PSA",
-        "CCI", "VICI", "CBRE", "AVB", "EQR", "ARE", "EXR", "IRM",
-        "SBAC", "WY", "ESS", "MAA", "UDR", "INVH", "KIM", "REG",
-    ],
-    "Materials": [
-        "LIN", "SHW", "APD", "ECL", "FCX", "NEM", "NUE", "DOW",
-        "VMC", "MLM", "PPG", "CTVA", "DD", "IFF", "BALL", "AVY",
-        "CF", "MOS", "STLD", "PKG", "IP", "EMN", "CE", "ALB",
-    ],
+SECTOR_TO_NASDAQ = {
+    "Information Technology": "Technology",
+    "Health Care": "Health Care",
+    "Financials": "Finance",
+    "Consumer Discretionary": "Consumer Discretionary",
+    "Communication Services": "Telecommunications",
+    "Industrials": "Industrials",
+    "Consumer Staples": "Consumer Staples",
+    "Energy": "Energy",
+    "Utilities": "Utilities",
+    "Real Estate": "Real Estate",
+    "Materials": "Basic Materials",
+    "Other / Miscellaneous": "Miscellaneous",
 }
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_sp500_constituents():
-    """
-    Returns a DataFrame with Symbol, Security, and GICS Sector.
+def normalize_yahoo_symbol(symbol):
+    if symbol is None:
+        return None
 
-    First tries a live S&P 500 constituent table using a normal browser
-    user-agent. If that fails, uses a much larger built-in fallback so
-    sectors are not artificially capped at ~14 stocks.
-    """
-    try:
-        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    symbol = str(symbol).strip().upper()
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120 Safari/537.36"
-            )
-        }
+    if not symbol:
+        return None
 
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=15,
-        )
-        response.raise_for_status()
+    symbol = (
+        symbol
+        .replace(".", "-")
+        .replace("/", "-")
+    )
 
-        tables = pd.read_html(
-            StringIO(response.text)
-        )
-
-        table = tables[0].copy()
-
-        needed = [
-            "Symbol",
-            "Security",
-            "GICS Sector",
+    if any(
+        bad in symbol
+        for bad in [
+            "$",
+            "^",
+            "=",
+            "+",
+            "*",
         ]
+    ):
+        return None
 
-        if not all(
-            col in table.columns
-            for col in needed
-        ):
-            raise ValueError(
-                "Unexpected S&P 500 table format"
+    if len(symbol) > 12:
+        return None
+
+    return symbol
+
+
+def looks_like_common_stock_name(name):
+    """
+    Used only for the Nasdaq Trader fallback directories, which contain
+    stocks plus some other listed securities.
+    """
+    text = str(name or "").upper()
+
+    excluded_terms = [
+        " WARRANT",
+        " WARRANTS",
+        " RIGHT",
+        " RIGHTS",
+        " UNIT",
+        " UNITS",
+        " PREFERRED",
+        " PREFERENCE",
+        " ETF",
+        " ETN",
+        " EXCHANGE TRADED FUND",
+        " CLOSED END FUND",
+        " CLOSED-END FUND",
+        " BOND",
+        " NOTES DUE",
+        " SENIOR NOTE",
+        " DEBENTURE",
+    ]
+
+    return not any(
+        term in text
+        for term in excluded_terms
+    )
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def get_us_stock_universe():
+    """
+    Broad U.S.-listed stock universe.
+
+    Primary source:
+      Nasdaq's public stock screener, including sector metadata.
+
+    Fallback:
+      Nasdaq Trader's Nasdaq-listed and other-exchange-listed
+      symbol directories.
+
+    This is called only after Build Portfolio is pressed.
+    """
+    import requests
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/146.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://www.nasdaq.com",
+        "Referer": "https://www.nasdaq.com/market-activity/stocks/screener",
+    }
+
+    # 1) Preferred source: Nasdaq stock screener
+    try:
+        endpoint = "https://api.nasdaq.com/api/screener/stocks"
+
+        rows_out = []
+        seen = set()
+        page_size = 5000
+
+        for offset in range(0, 20000, page_size):
+            params = {
+                "tableonly": "true",
+                "limit": str(page_size),
+                "offset": str(offset),
+                "download": "true",
+            }
+
+            response = requests.get(
+                endpoint,
+                headers=headers,
+                params=params,
+                timeout=25,
             )
+            response.raise_for_status()
 
-        table = table[needed].copy()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
 
-        table["Symbol"] = (
-            table["Symbol"]
-            .astype(str)
-            .str.replace(
-                ".",
-                "-",
-                regex=False,
-            )
-            .str.strip()
-        )
+            if not data:
+                break
 
-        return table
+            rows = data.get("rows", []) or []
 
-    except Exception:
-        rows = []
+            if not rows:
+                break
 
-        for sector, tickers in FALLBACK_SECTOR_UNIVERSE.items():
-            for ticker in tickers:
-                rows.append(
+            new_count = 0
+
+            for row in rows:
+                symbol = normalize_yahoo_symbol(
+                    row.get("symbol")
+                )
+
+                if symbol is None or symbol in seen:
+                    continue
+
+                seen.add(symbol)
+                new_count += 1
+
+                rows_out.append(
                     {
-                        "Symbol": ticker,
-                        "Security": ticker,
-                        "GICS Sector": sector,
+                        "Symbol": symbol,
+                        "Company": row.get("name") or symbol,
+                        "Sector": row.get("sector") or "Unknown",
+                        "Industry": row.get("industry") or "",
+                        "Country": row.get("country") or "",
+                        "Exchange": "",
+                        "Universe Source": "Nasdaq Stock Screener",
                     }
                 )
 
-        return pd.DataFrame(rows)
+            # Prevent looping forever if the endpoint ignores offset.
+            if new_count == 0:
+                break
+
+            if len(rows) < page_size:
+                break
+
+        df = pd.DataFrame(rows_out)
+
+        # A true full-market result should be much larger than an index.
+        if len(df) >= 1000:
+            return (
+                df
+                .drop_duplicates(subset=["Symbol"])
+                .sort_values("Symbol")
+                .reset_index(drop=True)
+            )
+
+    except Exception:
+        pass
+
+    # 2) Fallback: official Nasdaq Trader symbol directories
+    try:
+        from io import StringIO
+
+        nasdaq_url = (
+            "https://www.nasdaqtrader.com/"
+            "dynamic/SymDir/nasdaqlisted.txt"
+        )
+        other_url = (
+            "https://www.nasdaqtrader.com/"
+            "dynamic/SymDir/otherlisted.txt"
+        )
+
+        basic_headers = {
+            "User-Agent": headers["User-Agent"]
+        }
+
+        nasdaq_response = requests.get(
+            nasdaq_url,
+            headers=basic_headers,
+            timeout=20,
+        )
+        other_response = requests.get(
+            other_url,
+            headers=basic_headers,
+            timeout=20,
+        )
+
+        nasdaq_response.raise_for_status()
+        other_response.raise_for_status()
+
+        nasdaq_df = pd.read_csv(
+            StringIO(nasdaq_response.text),
+            sep="|",
+            dtype=str,
+        )
+        other_df = pd.read_csv(
+            StringIO(other_response.text),
+            sep="|",
+            dtype=str,
+        )
+
+        rows_out = []
+
+        for _, row in nasdaq_df.iterrows():
+            raw_symbol = row.get("Symbol")
+
+            if (
+                raw_symbol is None
+                or str(raw_symbol).startswith("File Creation Time")
+            ):
+                continue
+
+            if str(row.get("Test Issue", "N")).upper() == "Y":
+                continue
+
+            if str(row.get("ETF", "N")).upper() == "Y":
+                continue
+
+            name = row.get("Security Name", raw_symbol)
+
+            if not looks_like_common_stock_name(name):
+                continue
+
+            symbol = normalize_yahoo_symbol(raw_symbol)
+
+            if symbol is None:
+                continue
+
+            rows_out.append(
+                {
+                    "Symbol": symbol,
+                    "Company": name,
+                    "Sector": "Unknown",
+                    "Industry": "",
+                    "Country": "",
+                    "Exchange": "NASDAQ",
+                    "Universe Source": "Nasdaq Trader Directory",
+                }
+            )
+
+        exchange_names = {
+            "A": "NYSE American",
+            "N": "NYSE",
+            "P": "NYSE Arca",
+            "Z": "Cboe/BATS",
+            "V": "IEX",
+        }
+
+        for _, row in other_df.iterrows():
+            raw_symbol = (
+                row.get("NASDAQ Symbol")
+                or row.get("ACT Symbol")
+            )
+
+            if (
+                raw_symbol is None
+                or str(raw_symbol).startswith("File Creation Time")
+            ):
+                continue
+
+            if str(row.get("Test Issue", "N")).upper() == "Y":
+                continue
+
+            if str(row.get("ETF", "N")).upper() == "Y":
+                continue
+
+            name = row.get("Security Name", raw_symbol)
+
+            if not looks_like_common_stock_name(name):
+                continue
+
+            symbol = normalize_yahoo_symbol(raw_symbol)
+
+            if symbol is None:
+                continue
+
+            exchange_code = str(
+                row.get("Exchange", "")
+            ).strip()
+
+            rows_out.append(
+                {
+                    "Symbol": symbol,
+                    "Company": name,
+                    "Sector": "Unknown",
+                    "Industry": "",
+                    "Country": "",
+                    "Exchange": exchange_names.get(
+                        exchange_code,
+                        exchange_code,
+                    ),
+                    "Universe Source": "Nasdaq Trader Directory",
+                }
+            )
+
+        df = pd.DataFrame(rows_out)
+
+        if not df.empty:
+            return (
+                df
+                .drop_duplicates(subset=["Symbol"])
+                .sort_values("Symbol")
+                .reset_index(drop=True)
+            )
+
+    except Exception:
+        pass
+
+    return pd.DataFrame(
+        columns=[
+            "Symbol",
+            "Company",
+            "Sector",
+            "Industry",
+            "Country",
+            "Exchange",
+            "Universe Source",
+        ]
+    )
 
 
-def universe_for_sector(sector_focus):
-    constituents = get_sp500_constituents()
+def universe_for_sector(sector_focus, universe=None):
+    if universe is None:
+        universe = get_us_stock_universe()
 
-    if sector_focus == "All sectors (diversified)":
-        return constituents.copy()
+    if universe.empty:
+        return universe
 
-    return constituents[
-        constituents["GICS Sector"] == sector_focus
-    ].copy()
+    if sector_focus == "All US-listed stocks (all sectors)":
+        return universe.copy()
+
+    wanted_sector = SECTOR_TO_NASDAQ.get(
+        sector_focus,
+        sector_focus,
+    )
+
+    known_sectors = (
+        universe["Sector"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    # The official directory fallback has no sector field.
+    if int((known_sectors != "unknown").sum()) == 0:
+        return pd.DataFrame(columns=universe.columns)
+
+    return (
+        universe[
+            known_sectors
+            == str(wanted_sector).strip().lower()
+        ]
+        .copy()
+        .reset_index(drop=True)
+    )
 
 
 def quick_screen_score(close):
     """
-    Cheap first-pass score so we do not run fundamentals/news/ML on
-    hundreds of stocks. This is intentionally only a pre-screen.
+    First-pass score for the whole market.
+
+    Stocks with less than 200 trading days are still scanned. The score
+    automatically reweights around the history that is available.
     """
     close = close.dropna()
 
-    if len(close) < 200:
+    if len(close) < 21:
         return None
 
     price = safe_float(close.iloc[-1])
+
     if price is None or price <= 0:
         return None
 
-    ma20 = safe_float(close.rolling(20).mean().iloc[-1])
-    ma50 = safe_float(close.rolling(50).mean().iloc[-1])
-    ma200 = safe_float(close.rolling(200).mean().iloc[-1])
+    score = 0.0
+    possible = 0.0
 
-    r1 = pct_return(close, 21)
-    r3 = pct_return(close, 63)
-    r6 = pct_return(close, 126)
+    def add_scaled(value, low, high, points):
+        nonlocal score, possible
 
-    rsi_value = safe_float(
-        calculate_rsi(close).iloc[-1]
-    )
+        if value is None:
+            return
+
+        score += scaled_points(
+            value,
+            low,
+            high,
+            points,
+        )
+        possible += points
+
+    r1 = pct_return(close, 21) if len(close) > 21 else None
+    r3 = pct_return(close, 63) if len(close) > 63 else None
+    r6 = pct_return(close, 126) if len(close) > 126 else None
+
+    add_scaled(r1, -0.10, 0.10, 14)
+    add_scaled(r3, -0.20, 0.20, 18)
+    add_scaled(r6, -0.30, 0.30, 22)
+
+    for window, points in [
+        (20, 8),
+        (50, 10),
+        (200, 12),
+    ]:
+        if len(close) >= window:
+            ma_value = safe_float(
+                close.rolling(window).mean().iloc[-1]
+            )
+
+            if ma_value is not None:
+                possible += points
+
+                if price > ma_value:
+                    score += points
+
+    if len(close) >= 200:
+        ma50 = safe_float(
+            close.rolling(50).mean().iloc[-1]
+        )
+        ma200 = safe_float(
+            close.rolling(200).mean().iloc[-1]
+        )
+
+        if ma50 is not None and ma200 is not None:
+            possible += 8
+
+            if ma50 > ma200:
+                score += 8
+
+    if len(close) >= 15:
+        rsi_value = safe_float(
+            calculate_rsi(close).iloc[-1]
+        )
+
+        if rsi_value is not None:
+            possible += 5
+
+            if 45 <= rsi_value <= 68:
+                score += 5
+            elif (
+                35 <= rsi_value < 45
+                or 68 < rsi_value <= 75
+            ):
+                score += 3
 
     daily = close.pct_change().dropna()
-    vol = safe_float(
-        daily.tail(63).std() * np.sqrt(252)
+
+    if len(daily) >= 20:
+        vol = safe_float(
+            daily.tail(63).std() * np.sqrt(252)
+        )
+
+        if vol is not None:
+            possible += 3
+
+            if vol <= 0.25:
+                score += 3
+            elif vol <= 0.45:
+                score += 1
+
+    if possible <= 0:
+        return None
+
+    return clamp(
+        score / possible * 100.0
     )
-
-    score = 0.0
-
-    score += scaled_points(r1, -0.10, 0.10, 14)
-    score += scaled_points(r3, -0.20, 0.20, 18)
-    score += scaled_points(r6, -0.30, 0.30, 22)
-
-    if ma20 is not None and price > ma20:
-        score += 8
-    if ma50 is not None and price > ma50:
-        score += 10
-    if ma200 is not None and price > ma200:
-        score += 12
-    if ma50 is not None and ma200 is not None and ma50 > ma200:
-        score += 8
-
-    if rsi_value is not None:
-        if 45 <= rsi_value <= 68:
-            score += 5
-        elif 35 <= rsi_value < 45 or 68 < rsi_value <= 75:
-            score += 3
-
-    if vol is not None:
-        if vol <= 0.25:
-            score += 3
-        elif vol <= 0.45:
-            score += 1
-
-    return clamp(score)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def fast_screen_sector(sector_focus, finalist_limit=20):
+def fast_screen_sector(sector_focus, finalist_limit=100):
     """
-    Batch-downloads one year of prices and returns the strongest
-    first-pass candidates. For 'All sectors', finalists are deliberately
-    drawn across sectors so one hot industry cannot dominate the deep scan.
+    Stage 1 attempts a price-based screen of EVERY stock symbol in the
+    selected U.S.-listed universe. Expensive fundamentals/news/ML are saved
+    for the finalists.
     """
-    universe = universe_for_sector(sector_focus)
+    yf = get_yfinance()
+
+    full_universe = get_us_stock_universe()
+    universe = universe_for_sector(
+        sector_focus,
+        universe=full_universe,
+    )
 
     if universe.empty:
         return pd.DataFrame()
 
-    tickers = universe["Symbol"].dropna().unique().tolist()
+    tickers = (
+        universe["Symbol"]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
+    )
+
     sector_map = dict(
         zip(
             universe["Symbol"],
-            universe["GICS Sector"],
+            universe["Sector"],
         )
     )
     name_map = dict(
         zip(
             universe["Symbol"],
-            universe["Security"],
+            universe["Company"],
+        )
+    )
+    exchange_map = dict(
+        zip(
+            universe["Symbol"],
+            universe["Exchange"],
         )
     )
 
     rows = []
-    chunk_size = 80
+    chunk_size = 150
 
     for start_index in range(0, len(tickers), chunk_size):
-        chunk = tickers[start_index:start_index + chunk_size]
+        chunk = tickers[
+            start_index:start_index + chunk_size
+        ]
 
         try:
             batch = yf.download(
@@ -1466,6 +1786,7 @@ def fast_screen_sector(sector_focus, finalist_limit=20):
                         "Ticker": ticker,
                         "Company": name_map.get(ticker, ticker),
                         "Sector": sector_map.get(ticker, "Unknown"),
+                        "Exchange": exchange_map.get(ticker, ""),
                         "Quick Score": quick,
                     }
                 )
@@ -1481,37 +1802,55 @@ def fast_screen_sector(sector_focus, finalist_limit=20):
         .reset_index(drop=True)
     )
 
-    if sector_focus != "All sectors (diversified)":
+    if sector_focus != "All US-listed stocks (all sectors)":
         return screened.head(finalist_limit)
 
-    # For the all-sector mode, guarantee broad representation in the
-    # deep-analysis pool before filling remaining places by score.
-    sectors = [
-        s for s in SECTOR_OPTIONS
-        if s != "All sectors (diversified)"
+    real_sectors = [
+        sector
+        for sector in (
+            screened["Sector"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        if (
+            sector.strip()
+            and sector.strip().lower() != "unknown"
+        )
     ]
 
+    if not real_sectors:
+        return (
+            screened
+            .head(finalist_limit)
+            .reset_index(drop=True)
+        )
+
     selected_indices = []
+
     per_sector = max(
-        3,
+        5,
         int(
             np.ceil(
                 finalist_limit
-                / 22.0
+                / max(len(real_sectors) * 2, 1)
             )
         ),
     )
 
-    for sector in sectors:
+    for sector in real_sectors:
         sector_rows = screened[
-            screened["Sector"] == sector
+            screened["Sector"].astype(str) == sector
         ].head(per_sector)
 
         selected_indices.extend(
             sector_rows.index.tolist()
         )
 
-    selected_indices = list(dict.fromkeys(selected_indices))
+    selected_indices = list(
+        dict.fromkeys(selected_indices)
+    )
 
     diversified = screened.loc[
         selected_indices
@@ -1524,6 +1863,7 @@ def fast_screen_sector(sector_focus, finalist_limit=20):
         )
 
         need = finalist_limit - len(diversified)
+
         diversified = pd.concat(
             [
                 diversified,
@@ -2336,9 +2676,8 @@ if should_analyze:
 st.divider()
 st.subheader("AI Portfolio Builder")
 st.caption(
-    "Pick a sector — or let the model mix all sectors. "
-    "The app finds the stocks itself, screens them, runs deep analysis on the finalists, "
-    "and builds a diversified portfolio."
+    "All-sector mode now starts from the broad U.S.-listed stock market, not an index. "
+    "Stage 1 scans every available stock symbol, then the strongest finalists get fundamentals, news, overreaction, and ML analysis."
 )
 
 with st.expander(
@@ -2353,7 +2692,7 @@ with st.expander(
         index=0,
         key="portfolio_sector_focus",
         help=(
-            "Choose one S&P 500 sector, or use all sectors for a diversified search."
+            "Choose one sector, or scan the entire U.S.-listed stock universe across all sectors."
         ),
     )
 
@@ -2368,34 +2707,19 @@ with st.expander(
         key="portfolio_risk_profile",
     )
 
-    selected_universe_size = max(
-        len(
-            universe_for_sector(
-                sector_focus
-            )
-        ),
-        1,
-    )
-
+    # IMPORTANT: do not fetch the market universe during page render.
+    # The input can accept up to 500; the real limit is checked only after
+    # the user presses the build button.
     holdings_count = p3.number_input(
         "Holdings",
         min_value=1,
-        max_value=int(
-            selected_universe_size
-        ),
-        value=min(
-            5,
-            int(
-                selected_universe_size
-            ),
-        ),
+        max_value=500,
+        value=5,
         step=1,
         key="portfolio_holdings_count",
         help=(
-            "Choose any number of holdings up to the number of stocks "
-            "available in the selected S&P 500 sector universe. "
-            "The app now uses a live constituent list when possible and a "
-            "much larger fallback if the live source is unavailable."
+            "Choose how many stocks you want. The app checks the actual "
+            "available sector universe only after you press Build Portfolio."
         ),
     )
 
@@ -2410,15 +2734,9 @@ with st.expander(
         step=1000.0,
         help=(
             "Use 0 if you only want percentages. "
-            "This version searches U.S. S&P 500 stocks, so allocations are in USD."
+            "This version searches U.S.-listed stocks, so allocations are in USD."
         ),
         key="portfolio_budget",
-    )
-
-    st.caption(
-        "Selected universe currently contains {} stocks.".format(
-            selected_universe_size
-        )
     )
 
     if holdings_count > 25:
@@ -2436,22 +2754,81 @@ with st.expander(
     )
 
     if build_portfolio_clicked:
+        # Nothing above this point requires network access.
+        # Only now do we load the stock universe.
         with st.spinner(
-            "Stage 1/2 — screening the selected stock universe..."
+            "Loading the full U.S.-listed stock universe..."
         ):
-            # Analyze enough finalists to support any requested portfolio size.
-            # Small portfolios keep a healthy competition pool; large portfolios
-            # scale the finalist pool automatically instead of stopping at 8 or 20.
-            # Use a much larger competition pool than before.
+            full_us_universe = get_us_stock_universe()
+
+            selected_universe = universe_for_sector(
+                sector_focus,
+                universe=full_us_universe,
+            )
+
+        selected_universe_size = len(
+            selected_universe
+        )
+
+        if selected_universe_size == 0:
+            st.error(
+                "Could not load stocks for that sector. If the sector feed is temporarily unavailable, choose All US-listed stocks; the official symbol-directory fallback still supports the full-market scan."
+            )
+            st.stop()
+
+        requested_holdings = holdings_count
+        holdings_count = min(
+            holdings_count,
+            selected_universe_size,
+        )
+
+        if requested_holdings > selected_universe_size:
+            st.warning(
+                "You requested {} holdings, but this universe currently has {} "
+                "available stocks. Building with {} instead.".format(
+                    requested_holdings,
+                    selected_universe_size,
+                    holdings_count,
+                )
+            )
+
+        source_name = (
+            selected_universe["Universe Source"].iloc[0]
+            if (
+                not selected_universe.empty
+                and "Universe Source" in selected_universe.columns
+            )
+            else "market source"
+        )
+
+        st.caption(
+            "Loaded {:,} stock symbols in the selected universe · source: {}.".format(
+                selected_universe_size,
+                source_name,
+            )
+        )
+
+        if sector_focus == "All US-listed stocks (all sectors)":
+            st.info(
+                "Stage 1 will attempt a price-based screen of every symbol in the U.S.-listed stock universe. "
+                "Only the strongest candidates move to the much slower deep-analysis stage."
+            )
+
+        with st.spinner(
+            "Stage 1/2 — scanning every stock in the selected U.S. universe..."
+        ):
+            # A whole-market search needs a much wider deep-analysis pool.
             #
-            # Small portfolios: analyze at least 50 finalists.
-            # Larger portfolios: analyze roughly 3x the requested holdings.
-            # The pool is still capped by the actual selected universe size.
+            # Minimum: 100 finalists
+            # Larger portfolios: ~5x requested holdings
+            # Practical deep-analysis ceiling: 300 finalists
+            # Never exceed the real universe size.
             finalist_limit = min(
                 selected_universe_size,
+                300,
                 max(
-                    50,
-                    holdings_count * 3,
+                    100,
+                    holdings_count * 5,
                 ),
             )
 
@@ -2467,7 +2844,7 @@ with st.expander(
 
         else:
             st.caption(
-                "Fast screen selected {} deep-analysis finalists from {}.".format(
+                "Full-market screen selected {} deep-analysis finalists from {}.".format(
                     len(finalists),
                     sector_focus,
                 )
@@ -2737,7 +3114,7 @@ with st.expander(
                 )
 
                 st.write(
-                    "• First-pass screening scans the selected S&P 500 sector universe using momentum, trend, RSI, and volatility."
+                    "• First-pass screening scans every available stock in the selected U.S.-listed universe using momentum, trend, RSI, and volatility."
                 )
 
                 st.write(
@@ -2765,6 +3142,6 @@ with st.expander(
 
                 st.info(
                     "This is a model-generated research portfolio, not a guarantee of returns. "
-                    "The portfolio is selected from the current S&P 500 universe and can use any requested number of holdings up to the available universe size. Results can change as market data changes."
+                    "The portfolio is selected from the current U.S.-listed stock universe. The broad first pass scans the market, while only the strongest finalists receive expensive fundamentals/news/ML analysis. Results can change as listings and market data change."
                 )
 
