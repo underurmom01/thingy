@@ -2,12 +2,14 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import requests
+from io import StringIO
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 
 
-st.set_page_config(page_title="Stock Signal Lab v5", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v6", page_icon="📈", layout="wide")
 
 # =========================================================
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
@@ -312,8 +314,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v5</div>
-        <h1>Stock Signal Lab <span>v5</span></h1>
+        <div class="app-eyebrow">Signal research · v6</div>
+        <h1>Stock Signal Lab <span>v6</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -1191,47 +1193,63 @@ SECTOR_OPTIONS = [
 FALLBACK_SECTOR_UNIVERSE = {
     "Information Technology": [
         "AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "ADBE",
-        "QCOM", "TXN", "INTU", "NOW", "MU", "AMAT", "LRCX",
+        "QCOM", "TXN", "INTU", "NOW", "MU", "AMAT", "LRCX", "ADI",
+        "KLAC", "SNPS", "CDNS", "PANW", "CRWD", "FTNT", "NXPI", "MCHP",
+        "APH", "TEL", "ANET", "IBM", "ACN", "GLW", "KEYS", "ON",
     ],
     "Health Care": [
         "LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG",
-        "AMGN", "GILD", "VRTX", "SYK", "BSX", "MDT",
+        "AMGN", "GILD", "VRTX", "SYK", "BSX", "MDT", "CI", "CVS",
+        "ELV", "ZTS", "REGN", "BDX", "EW", "A", "IDXX", "IQV",
+        "HCA", "MCK", "COR", "CAH", "BAX", "RMD",
     ],
     "Financials": [
         "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
-        "AXP", "BLK", "SPGI", "C", "SCHW", "PGR",
+        "AXP", "BLK", "SPGI", "C", "SCHW", "PGR", "MMC", "CB",
+        "AON", "ICE", "CME", "USB", "PNC", "TFC", "AFL", "MET",
+        "PRU", "COF", "BK", "STT", "MCO", "AJG",
     ],
     "Consumer Discretionary": [
         "AMZN", "TSLA", "HD", "MCD", "BKNG", "TJX", "LOW", "NKE",
-        "SBUX", "ORLY", "MAR", "GM", "F", "CMG",
+        "SBUX", "ORLY", "MAR", "GM", "F", "CMG", "ROST", "AZO",
+        "DHI", "LEN", "YUM", "DRI", "ULTA", "BBY", "GPC", "TSCO",
+        "LULU", "NVR", "RCL", "CCL", "EXPE", "EBAY",
     ],
     "Communication Services": [
         "META", "GOOGL", "GOOG", "NFLX", "TMUS", "DIS", "VZ", "T",
-        "CMCSA", "CHTR", "EA", "TTWO",
+        "CMCSA", "CHTR", "EA", "TTWO", "WBD", "OMC", "LYV", "MTCH",
+        "IPG", "FOXA", "FOX", "PARA",
     ],
     "Industrials": [
         "GE", "CAT", "RTX", "UNP", "HON", "ETN", "BA", "DE",
-        "LMT", "UPS", "WM", "PH", "GD", "EMR",
+        "LMT", "UPS", "WM", "PH", "GD", "EMR", "MMM", "ITW",
+        "CSX", "NSC", "FDX", "JCI", "PCAR", "CMI", "FAST", "ODFL",
+        "RSG", "URI", "PWR", "AME", "IR", "ROK", "HWM", "GWW",
     ],
     "Consumer Staples": [
         "WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ",
-        "CL", "KMB", "SYY", "KDP",
+        "CL", "KMB", "SYY", "KDP", "TGT", "KR", "GIS", "KHC",
+        "HSY", "STZ", "MKC", "CLX", "CHD", "SJM", "CPB", "ADM",
     ],
     "Energy": [
         "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "WMB",
-        "OKE", "VLO", "KMI", "OXY",
+        "OKE", "VLO", "KMI", "OXY", "HAL", "DVN", "FANG", "BKR",
+        "HES", "APA", "EQT", "CTRA", "TRGP", "TPL",
     ],
     "Utilities": [
         "NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "EXC",
-        "XEL", "PEG", "ED", "ETR",
+        "XEL", "PEG", "ED", "ETR", "WEC", "ES", "DTE", "FE",
+        "PPL", "AEE", "ATO", "CMS", "CNP", "NI", "EVRG", "LNT",
     ],
     "Real Estate": [
         "PLD", "AMT", "EQIX", "WELL", "SPG", "O", "DLR", "PSA",
-        "CCI", "VICI", "CBRE", "AVB",
+        "CCI", "VICI", "CBRE", "AVB", "EQR", "ARE", "EXR", "IRM",
+        "SBAC", "WY", "ESS", "MAA", "UDR", "INVH", "KIM", "REG",
     ],
     "Materials": [
         "LIN", "SHW", "APD", "ECL", "FCX", "NEM", "NUE", "DOW",
-        "VMC", "MLM", "PPG", "CTVA",
+        "VMC", "MLM", "PPG", "CTVA", "DD", "IFF", "BALL", "AVY",
+        "CF", "MOS", "STLD", "PKG", "IP", "EMN", "CE", "ALB",
     ],
 }
 
@@ -1240,23 +1258,59 @@ FALLBACK_SECTOR_UNIVERSE = {
 def get_sp500_constituents():
     """
     Returns a DataFrame with Symbol, Security, and GICS Sector.
-    Uses Wikipedia's S&P 500 constituent table, with a built-in fallback.
+
+    First tries a live S&P 500 constituent table using a normal browser
+    user-agent. If that fails, uses a much larger built-in fallback so
+    sectors are not artificially capped at ~14 stocks.
     """
     try:
-        tables = pd.read_html(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120 Safari/537.36"
+            )
+        }
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15,
         )
+        response.raise_for_status()
+
+        tables = pd.read_html(
+            StringIO(response.text)
+        )
+
         table = tables[0].copy()
 
-        needed = ["Symbol", "Security", "GICS Sector"]
-        if not all(col in table.columns for col in needed):
-            raise ValueError("Unexpected S&P 500 table format")
+        needed = [
+            "Symbol",
+            "Security",
+            "GICS Sector",
+        ]
+
+        if not all(
+            col in table.columns
+            for col in needed
+        ):
+            raise ValueError(
+                "Unexpected S&P 500 table format"
+            )
 
         table = table[needed].copy()
+
         table["Symbol"] = (
             table["Symbol"]
             .astype(str)
-            .str.replace(".", "-", regex=False)
+            .str.replace(
+                ".",
+                "-",
+                regex=False,
+            )
             .str.strip()
         )
 
@@ -1264,6 +1318,7 @@ def get_sp500_constituents():
 
     except Exception:
         rows = []
+
         for sector, tickers in FALLBACK_SECTOR_UNIVERSE.items():
             for ticker in tickers:
                 rows.append(
@@ -1273,6 +1328,7 @@ def get_sp500_constituents():
                         "GICS Sector": sector,
                     }
                 )
+
         return pd.DataFrame(rows)
 
 
@@ -1436,7 +1492,15 @@ def fast_screen_sector(sector_focus, finalist_limit=20):
     ]
 
     selected_indices = []
-    per_sector = 2
+    per_sector = max(
+        3,
+        int(
+            np.ceil(
+                finalist_limit
+                / 22.0
+            )
+        ),
+    )
 
     for sector in sectors:
         sector_rows = screened[
@@ -2329,7 +2393,9 @@ with st.expander(
         key="portfolio_holdings_count",
         help=(
             "Choose any number of holdings up to the number of stocks "
-            "available in the selected S&P 500 sector universe."
+            "available in the selected S&P 500 sector universe. "
+            "The app now uses a live constituent list when possible and a "
+            "much larger fallback if the live source is unavailable."
         ),
     )
 
@@ -2347,6 +2413,12 @@ with st.expander(
             "This version searches U.S. S&P 500 stocks, so allocations are in USD."
         ),
         key="portfolio_budget",
+    )
+
+    st.caption(
+        "Selected universe currently contains {} stocks.".format(
+            selected_universe_size
+        )
     )
 
     if holdings_count > 25:
@@ -2370,20 +2442,16 @@ with st.expander(
             # Analyze enough finalists to support any requested portfolio size.
             # Small portfolios keep a healthy competition pool; large portfolios
             # scale the finalist pool automatically instead of stopping at 8 or 20.
+            # Use a much larger competition pool than before.
+            #
+            # Small portfolios: analyze at least 50 finalists.
+            # Larger portfolios: analyze roughly 3x the requested holdings.
+            # The pool is still capped by the actual selected universe size.
             finalist_limit = min(
                 selected_universe_size,
                 max(
-                    20,
-                    holdings_count
-                    + max(
-                        10,
-                        int(
-                            np.ceil(
-                                holdings_count
-                                * 0.25
-                            )
-                        ),
-                    ),
+                    50,
+                    holdings_count * 3,
                 ),
             )
 
@@ -2399,7 +2467,7 @@ with st.expander(
 
         else:
             st.caption(
-                "Fast screen found {} finalists from {}.".format(
+                "Fast screen selected {} deep-analysis finalists from {}.".format(
                     len(finalists),
                     sector_focus,
                 )
