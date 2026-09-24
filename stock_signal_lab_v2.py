@@ -2,8 +2,230 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
+from pathlib import Path
+import json
+import os
+import re
+import tempfile
+import time
 
-st.set_page_config(page_title="Stock Signal Lab v9", page_icon="📈", layout="wide")
+
+st.set_page_config(page_title="Stock Signal Lab v10", page_icon="📈", layout="wide")
+
+
+
+# =========================================================
+# LOCAL / DISK CACHE
+# =========================================================
+#
+# On a normal local computer this survives app restarts.
+# On Streamlit Community Cloud the filesystem is temporary, so it normally
+# survives reruns while the app instance is alive but can disappear after a
+# reboot/redeploy. st.cache_data still gives an additional in-memory layer.
+# =========================================================
+
+PRICE_CACHE_TTL = 6 * 60 * 60
+FUNDAMENTAL_CACHE_TTL = 12 * 60 * 60
+EARNINGS_CACHE_TTL = 6 * 60 * 60
+NEWS_CACHE_TTL = 60 * 60
+FAST_SCREEN_CACHE_TTL = 30 * 60
+
+
+def _make_cache_root():
+    candidates = [
+        Path.cwd() / ".stock_signal_cache_v10",
+        Path(tempfile.gettempdir()) / "stock_signal_cache_v10",
+    ]
+
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".write_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            return candidate
+        except Exception:
+            continue
+
+    return Path(tempfile.gettempdir())
+
+
+LOCAL_CACHE_ROOT = _make_cache_root()
+
+for _folder in ["prices", "json", "screens"]:
+    try:
+        (LOCAL_CACHE_ROOT / _folder).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _safe_cache_name(value):
+    return re.sub(
+        r"[^A-Za-z0-9_.-]+",
+        "_",
+        str(value),
+    )[:180]
+
+
+def _is_fresh(path, ttl_seconds):
+    try:
+        if not path.exists():
+            return False
+
+        age = time.time() - path.stat().st_mtime
+        return age <= ttl_seconds
+    except Exception:
+        return False
+
+
+def _price_cache_path(ticker):
+    return (
+        LOCAL_CACHE_ROOT
+        / "prices"
+        / ("{}.pkl".format(_safe_cache_name(ticker)))
+    )
+
+
+def _read_price_cache(ticker, ttl_seconds=PRICE_CACHE_TTL):
+    path = _price_cache_path(ticker)
+
+    if not _is_fresh(path, ttl_seconds):
+        return None
+
+    try:
+        data = pd.read_pickle(path)
+
+        if (
+            isinstance(data, pd.DataFrame)
+            and not data.empty
+            and "Close" in data.columns
+        ):
+            return data
+
+    except Exception:
+        pass
+
+    return None
+
+
+def _write_price_cache(ticker, data):
+    if (
+        data is None
+        or not isinstance(data, pd.DataFrame)
+        or data.empty
+        or "Close" not in data.columns
+    ):
+        return
+
+    path = _price_cache_path(ticker)
+    temp_path = path.with_suffix(".tmp")
+
+    try:
+        data.to_pickle(temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _json_cache_path(kind, ticker):
+    return (
+        LOCAL_CACHE_ROOT
+        / "json"
+        / (
+            "{}__{}.json".format(
+                _safe_cache_name(kind),
+                _safe_cache_name(ticker),
+            )
+        )
+    )
+
+
+def _read_json_cache(kind, ticker, ttl_seconds):
+    path = _json_cache_path(kind, ticker)
+
+    if not _is_fresh(path, ttl_seconds):
+        return None
+
+    try:
+        return json.loads(
+            path.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return None
+
+
+def _write_json_cache(kind, ticker, value):
+    path = _json_cache_path(kind, ticker)
+    temp_path = path.with_suffix(".tmp")
+
+    try:
+        temp_path.write_text(
+            json.dumps(value),
+            encoding="utf-8",
+        )
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _screen_cache_path(sector_focus):
+    return (
+        LOCAL_CACHE_ROOT
+        / "screens"
+        / (
+            "{}.pkl".format(
+                _safe_cache_name(sector_focus)
+            )
+        )
+    )
+
+
+def _read_screen_cache(sector_focus):
+    path = _screen_cache_path(sector_focus)
+
+    if not _is_fresh(
+        path,
+        FAST_SCREEN_CACHE_TTL,
+    ):
+        return None
+
+    try:
+        data = pd.read_pickle(path)
+
+        if isinstance(data, pd.DataFrame):
+            return data
+
+    except Exception:
+        pass
+
+    return None
+
+
+def _write_screen_cache(sector_focus, data):
+    if (
+        data is None
+        or not isinstance(data, pd.DataFrame)
+        or data.empty
+    ):
+        return
+
+    path = _screen_cache_path(sector_focus)
+    temp_path = path.with_suffix(".tmp")
+
+    try:
+        data.to_pickle(temp_path)
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 @st.cache_resource(show_spinner=False)
@@ -319,8 +541,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v9</div>
-        <h1>Stock Signal Lab <span>v9</span></h1>
+        <div class="app-eyebrow">Signal research · v10</div>
+        <h1>Stock Signal Lab <span>v10</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -398,91 +620,303 @@ def clamp(value, low=0.0, high=100.0):
     return float(np.clip(value, low, high))
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def download_data(ticker):
-    try:
-        yf = get_yfinance()
-        data = yf.Ticker(ticker).history(period="10y", interval="1d", auto_adjust=True)
-        if data is None or data.empty:
-            return None
-        if "Close" not in data.columns or "Volume" not in data.columns:
-            return None
-        data = data.copy().sort_index()
-        data = data[~data.index.duplicated(keep="last")]
-        return data
-    except Exception:
+def _clean_price_frame(data):
+    if data is None or not isinstance(data, pd.DataFrame) or data.empty:
         return None
 
+    frame = data.copy()
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def download_fundamentals(ticker):
+    # yfinance sometimes returns a timezone-aware index.
     try:
-        yf = get_yfinance()
-        info = yf.Ticker(ticker).info
-        if not isinstance(info, dict):
-            return {}
-        return {
-            "company_name": info.get("longName") or info.get("shortName"),
-            "sector": info.get("sector"),
-            "revenue_growth": normalize_fraction(info.get("revenueGrowth")),
-            "earnings_growth": normalize_fraction(info.get("earningsGrowth")),
-            "profit_margin": normalize_fraction(info.get("profitMargins")),
-            "forward_pe": safe_float(info.get("forwardPE")),
-            "debt_to_equity": safe_float(info.get("debtToEquity")),
-            "free_cash_flow": safe_float(info.get("freeCashflow")),
-        }
+        if getattr(frame.index, "tz", None) is not None:
+            frame.index = frame.index.tz_localize(None)
     except Exception:
-        return {}
+        pass
+
+    frame = frame.sort_index()
+    frame = frame[~frame.index.duplicated(keep="last")]
+
+    if "Close" not in frame.columns:
+        return None
+
+    frame = frame[
+        frame["Close"].notna()
+    ]
+
+    if frame.empty:
+        return None
+
+    # Keep the rest of the app alive even when a listing has no reported
+    # volume field. ML can simply become unavailable for that ticker.
+    if "Volume" not in frame.columns:
+        frame["Volume"] = np.nan
+
+    return frame
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def download_latest_earnings(ticker):
-    try:
-        yf = get_yfinance()
-        earnings = yf.Ticker(ticker).get_earnings_dates(limit=8)
-        if earnings is None or earnings.empty:
-            return None
+def _fetch_single_history(ticker):
+    yf = get_yfinance()
 
-        reported_col = None
-        estimate_col = None
-        surprise_col = None
-        for col in earnings.columns:
-            name = str(col).lower().replace(" ", "")
-            if "reportedeps" in name:
-                reported_col = col
-            elif "epsestimate" in name:
-                estimate_col = col
-            elif "surprise" in name:
-                surprise_col = col
-
-        if reported_col is None:
-            return None
-
-        past = earnings[earnings[reported_col].notna()]
-        if past.empty:
-            return None
-
-        row = past.iloc[0]
-        reported = safe_float(row.get(reported_col))
-        estimate = safe_float(row.get(estimate_col)) if estimate_col is not None else None
-        surprise = normalize_fraction(row.get(surprise_col)) if surprise_col is not None else None
-
-        if surprise is None and reported is not None and estimate not in (None, 0):
-            surprise = (reported - estimate) / abs(estimate)
-
+    # Two attempts are enough to recover a surprising number of temporary
+    # Yahoo/yfinance failures without making a bad ticker stall the app.
+    for attempt in range(2):
         try:
-            date_text = str(past.index[0].date())
-        except Exception:
-            date_text = str(past.index[0])
+            data = yf.download(
+                tickers=ticker,
+                period="10y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+            )
 
-        return {
-            "date": date_text,
-            "reported_eps": reported,
-            "estimate_eps": estimate,
-            "eps_surprise": surprise,
-        }
-    except Exception:
-        return None
+            data = _clean_price_frame(data)
+
+            if data is not None:
+                _write_price_cache(
+                    ticker,
+                    data,
+                )
+                return data
+
+        except Exception:
+            pass
+
+        if attempt == 0:
+            time.sleep(0.35)
+
+    return None
+
+
+def download_data(ticker, force_refresh=False):
+    """
+    Price history now uses a local disk cache first.
+
+    This fixes two problems from v9:
+    1. the same ticker no longer gets re-downloaded on every rerun;
+    2. a failed Yahoo request is not permanently cached as None.
+    """
+    if not force_refresh:
+        cached = _read_price_cache(
+            ticker
+        )
+
+        if cached is not None:
+            return cached
+
+    return _fetch_single_history(
+        ticker
+    )
+
+
+def download_fundamentals(ticker):
+    cached = _read_json_cache(
+        "fundamentals",
+        ticker,
+        FUNDAMENTAL_CACHE_TTL,
+    )
+
+    if cached is not None:
+        return cached
+
+    yf = get_yfinance()
+    result = {}
+
+    for attempt in range(2):
+        try:
+            info = yf.Ticker(
+                ticker
+            ).get_info()
+
+            if not isinstance(info, dict):
+                info = {}
+
+            result = {
+                "company_name":
+                    info.get("longName")
+                    or info.get("shortName"),
+                "sector":
+                    info.get("sector"),
+                "revenue_growth":
+                    normalize_fraction(
+                        info.get(
+                            "revenueGrowth"
+                        )
+                    ),
+                "earnings_growth":
+                    normalize_fraction(
+                        info.get(
+                            "earningsGrowth"
+                        )
+                    ),
+                "profit_margin":
+                    normalize_fraction(
+                        info.get(
+                            "profitMargins"
+                        )
+                    ),
+                "forward_pe":
+                    safe_float(
+                        info.get(
+                            "forwardPE"
+                        )
+                    ),
+                "debt_to_equity":
+                    safe_float(
+                        info.get(
+                            "debtToEquity"
+                        )
+                    ),
+                "free_cash_flow":
+                    safe_float(
+                        info.get(
+                            "freeCashflow"
+                        )
+                    ),
+            }
+
+            break
+
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.25)
+
+    _write_json_cache(
+        "fundamentals",
+        ticker,
+        result,
+    )
+
+    return result
+
+
+def download_latest_earnings(ticker):
+    cached = _read_json_cache(
+        "earnings",
+        ticker,
+        EARNINGS_CACHE_TTL,
+    )
+
+    if cached is not None:
+        return cached
+
+    yf = get_yfinance()
+    result = None
+
+    for attempt in range(2):
+        try:
+            earnings = (
+                yf.Ticker(ticker)
+                .get_earnings_dates(
+                    limit=8
+                )
+            )
+
+            if (
+                earnings is None
+                or earnings.empty
+            ):
+                break
+
+            reported_col = None
+            estimate_col = None
+            surprise_col = None
+
+            for col in earnings.columns:
+                name = (
+                    str(col)
+                    .lower()
+                    .replace(" ", "")
+                )
+
+                if "reportedeps" in name:
+                    reported_col = col
+                elif "epsestimate" in name:
+                    estimate_col = col
+                elif "surprise" in name:
+                    surprise_col = col
+
+            if reported_col is None:
+                break
+
+            past = earnings[
+                earnings[
+                    reported_col
+                ].notna()
+            ]
+
+            if past.empty:
+                break
+
+            row = past.iloc[0]
+
+            reported = safe_float(
+                row.get(reported_col)
+            )
+
+            estimate = (
+                safe_float(
+                    row.get(
+                        estimate_col
+                    )
+                )
+                if estimate_col is not None
+                else None
+            )
+
+            surprise = (
+                normalize_fraction(
+                    row.get(
+                        surprise_col
+                    )
+                )
+                if surprise_col is not None
+                else None
+            )
+
+            if (
+                surprise is None
+                and reported is not None
+                and estimate not in (
+                    None,
+                    0,
+                )
+            ):
+                surprise = (
+                    reported - estimate
+                ) / abs(estimate)
+
+            try:
+                date_text = str(
+                    past.index[0].date()
+                )
+            except Exception:
+                date_text = str(
+                    past.index[0]
+                )
+
+            result = {
+                "date": date_text,
+                "reported_eps": reported,
+                "estimate_eps": estimate,
+                "eps_surprise": surprise,
+            }
+
+            break
+
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.25)
+
+    _write_json_cache(
+        "earnings",
+        ticker,
+        result,
+    )
+
+    return result
+
+
 
 
 def parse_news_item(item):
@@ -512,21 +946,50 @@ def parse_news_item(item):
     return None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def download_news(ticker):
-    try:
-        yf = get_yfinance()
-        raw = yf.Ticker(ticker).news
-        if not raw:
-            return []
-        out = []
-        for item in raw[:12]:
-            parsed = parse_news_item(item)
-            if parsed:
-                out.append(parsed)
-        return out
-    except Exception:
-        return []
+    cached = _read_json_cache(
+        "news",
+        ticker,
+        NEWS_CACHE_TTL,
+    )
+
+    if cached is not None:
+        return cached
+
+    yf = get_yfinance()
+    out = []
+
+    for attempt in range(2):
+        try:
+            raw = (
+                yf.Ticker(ticker)
+                .news
+            )
+
+            if not raw:
+                break
+
+            for item in raw[:12]:
+                parsed = parse_news_item(
+                    item
+                )
+
+                if parsed:
+                    out.append(parsed)
+
+            break
+
+        except Exception:
+            if attempt == 0:
+                time.sleep(0.25)
+
+    _write_json_cache(
+        "news",
+        ticker,
+        out,
+    )
+
+    return out
 
 
 def headline_sentiment(news_items):
@@ -624,68 +1087,237 @@ def drawdown_points(dd):
     return 0
 
 
-def technical_analysis(ticker):
-    data = download_data(ticker)
+def technical_analysis_from_data(data):
+    data = _clean_price_frame(
+        data
+    )
+
     if data is None:
         return None
 
     close = data["Close"].dropna()
-    if len(close) < 200:
+
+    # v9 required 200 trading days and therefore rejected every newer
+    # listing. 63 sessions is enough for a useful partial technical view.
+    if len(close) < 63:
         return None
 
-    price = float(close.iloc[-1])
-    ma20_series = close.rolling(20).mean()
-    ma50_series = close.rolling(50).mean()
-    ma200_series = close.rolling(200).mean()
-    ma20 = float(ma20_series.iloc[-1])
-    ma50 = float(ma50_series.iloc[-1])
-    ma200 = float(ma200_series.iloc[-1])
+    price = safe_float(
+        close.iloc[-1]
+    )
 
-    r1 = pct_return(close, 21)
-    r3 = pct_return(close, 63)
-    r6 = pct_return(close, 126)
-    rsi = float(calculate_rsi(close).iloc[-1])
-    annualized_vol = float(close.pct_change().dropna().std() * np.sqrt(252))
-    dd = max_drawdown(close)
+    if price is None:
+        return None
+
+    ma20_series = (
+        close.rolling(20).mean()
+    )
+    ma50_series = (
+        close.rolling(50).mean()
+    )
+    ma200_series = (
+        close.rolling(200).mean()
+    )
+
+    ma20 = (
+        safe_float(
+            ma20_series.iloc[-1]
+        )
+        if len(close) >= 20
+        else None
+    )
+
+    ma50 = (
+        safe_float(
+            ma50_series.iloc[-1]
+        )
+        if len(close) >= 50
+        else None
+    )
+
+    ma200 = (
+        safe_float(
+            ma200_series.iloc[-1]
+        )
+        if len(close) >= 200
+        else None
+    )
+
+    r1 = (
+        pct_return(close, 21)
+        if len(close) > 21
+        else None
+    )
+
+    r3 = (
+        pct_return(close, 63)
+        if len(close) > 63
+        else None
+    )
+
+    r6 = (
+        pct_return(close, 126)
+        if len(close) > 126
+        else None
+    )
+
+    rsi = safe_float(
+        calculate_rsi(
+            close
+        ).iloc[-1]
+    )
+
+    daily = (
+        close
+        .pct_change()
+        .dropna()
+    )
+
+    annualized_vol = (
+        safe_float(
+            daily.std()
+            * np.sqrt(252)
+        )
+        if len(daily) >= 20
+        else None
+    )
+
+    dd = (
+        safe_float(
+            max_drawdown(close)
+        )
+        if len(close) >= 20
+        else None
+    )
 
     score = 0.0
-    score += scaled_points(r1, -0.10, 0.10, 8)
-    score += scaled_points(r3, -0.20, 0.20, 12)
-    score += scaled_points(r6, -0.30, 0.30, 16)
-    if price > ma20:
-        score += 6
-    if price > ma50:
-        score += 10
-    if price > ma200:
-        score += 10
-    if ma50 > ma200:
-        score += 10
-    score += rsi_points(rsi)
-    score += volatility_points(annualized_vol)
-    score += drawdown_points(dd)
+    possible = 0.0
 
-    chart = pd.DataFrame({
-        "Price": close,
-        "MA 20": ma20_series,
-        "MA 50": ma50_series,
-        "MA 200": ma200_series,
-    }).dropna()
+    def add_points(
+        value,
+        bad,
+        good,
+        points,
+    ):
+        nonlocal score, possible
+
+        if value is None:
+            return
+
+        score += scaled_points(
+            value,
+            bad,
+            good,
+            points,
+        )
+        possible += points
+
+    add_points(
+        r1,
+        -0.10,
+        0.10,
+        8,
+    )
+    add_points(
+        r3,
+        -0.20,
+        0.20,
+        12,
+    )
+    add_points(
+        r6,
+        -0.30,
+        0.30,
+        16,
+    )
+
+    if ma20 is not None:
+        possible += 6
+
+        if price > ma20:
+            score += 6
+
+    if ma50 is not None:
+        possible += 10
+
+        if price > ma50:
+            score += 10
+
+    if ma200 is not None:
+        possible += 10
+
+        if price > ma200:
+            score += 10
+
+    if (
+        ma50 is not None
+        and ma200 is not None
+    ):
+        possible += 10
+
+        if ma50 > ma200:
+            score += 10
+
+    if rsi is not None:
+        score += rsi_points(rsi)
+        possible += 12
+
+    if annualized_vol is not None:
+        score += volatility_points(
+            annualized_vol
+        )
+        possible += 8
+
+    if dd is not None:
+        score += drawdown_points(dd)
+        possible += 8
+
+    if possible <= 0:
+        return None
+
+    normalized_score = clamp(
+        score / possible * 100.0
+    )
+
+    chart = pd.DataFrame(
+        {
+            "Price": close,
+            "MA 20": ma20_series,
+            "MA 50": ma50_series,
+            "MA 200": ma200_series,
+        }
+    )
 
     return {
         "data": data,
         "price": price,
-        "technical_score": clamp(score),
+        "technical_score":
+            normalized_score,
         "return_1m": r1,
         "return_3m": r3,
         "return_6m": r6,
         "ma20": ma20,
         "ma50": ma50,
         "ma200": ma200,
-        "rsi": rsi,
-        "annualized_volatility": annualized_vol,
+        "rsi": (
+            rsi
+            if rsi is not None
+            else 50.0
+        ),
+        "annualized_volatility": (
+            annualized_vol
+            if annualized_vol is not None
+            else 0.50
+        ),
         "max_drawdown": dd,
         "chart": chart,
     }
+
+
+def technical_analysis(ticker):
+    return technical_analysis_from_data(
+        download_data(ticker)
+    )
 
 
 def weighted_available(parts):
@@ -779,7 +1411,11 @@ def event_score(earnings, news_items):
 def market_reaction(technical, fund_score, evt_score):
     data = technical["data"]
     close = data["Close"].dropna()
-    volume = data["Volume"].dropna()
+    volume = (
+        data["Volume"].dropna()
+        if "Volume" in data.columns
+        else pd.Series(dtype=float)
+    )
     if len(close) < 25:
         return None
 
@@ -788,8 +1424,21 @@ def market_reaction(technical, fund_score, evt_score):
     vol20 = float(close.pct_change().rolling(20).std().iloc[-1])
     z = ret1 / vol20 if np.isfinite(vol20) and vol20 > 0 else 0.0
 
-    avg_volume = volume.rolling(20).mean().iloc[-1]
-    volume_ratio = float(volume.iloc[-1] / avg_volume) if np.isfinite(avg_volume) and avg_volume > 0 else 1.0
+    if len(volume) >= 20:
+        avg_volume = volume.rolling(20).mean().iloc[-1]
+        volume_ratio = (
+            float(
+                volume.iloc[-1]
+                / avg_volume
+            )
+            if (
+                np.isfinite(avg_volume)
+                and avg_volume > 0
+            )
+            else 1.0
+        )
+    else:
+        volume_ratio = 1.0
 
     evt = evt_score if evt_score is not None else 50
     fund = fund_score if fund_score is not None else 50
@@ -1111,7 +1760,7 @@ def build_training_dataset(data, horizon_days):
     return features.dropna()
 
 
-def train_forecast_model(dataset):
+def train_forecast_model(dataset, fast_mode=False):
     if len(dataset) < 300:
         return None
 
@@ -1130,8 +1779,16 @@ def train_forecast_model(dataset):
         return None
 
     model = RandomForestRegressor(
-        n_estimators=150,
-        max_depth=8,
+        n_estimators=(
+            80
+            if fast_mode
+            else 150
+        ),
+        max_depth=(
+            7
+            if fast_mode
+            else 8
+        ),
         min_samples_leaf=5,
         random_state=42,
         n_jobs=-1,
@@ -1147,9 +1804,9 @@ def train_forecast_model(dataset):
     return model, mae, direction_acc, baseline_acc
 
 
-def predict_horizon(data, horizon_days):
+def predict_horizon(data, horizon_days, fast_mode=False):
     dataset = build_training_dataset(data, horizon_days)
-    trained = train_forecast_model(dataset)
+    trained = train_forecast_model(dataset, fast_mode=fast_mode)
     if trained is None:
         return None
 
@@ -1182,7 +1839,7 @@ def run_all_forecasts(ticker):
 
 # =========================================================
 # AI PORTFOLIO BUILDER
-# Automatically discovers stocks from the S&P 500.
+# Automatically discovers stocks from the broad U.S.-listed market.
 # Stage 1: fast price-based screening.
 # Stage 2: deep hybrid + ML analysis only on finalists.
 # =========================================================
@@ -1703,16 +2360,140 @@ def quick_screen_score(close):
     )
 
 
+def _select_fast_finalists(
+    screened,
+    sector_focus,
+    finalist_limit,
+):
+    if screened is None or screened.empty:
+        return pd.DataFrame()
+
+    if sector_focus != "All US-listed stocks (all sectors)":
+        return (
+            screened
+            .head(finalist_limit)
+            .reset_index(drop=True)
+        )
+
+    real_sectors = [
+        sector
+        for sector in (
+            screened["Sector"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        if (
+            sector.strip()
+            and sector.strip().lower()
+            != "unknown"
+        )
+    ]
+
+    if not real_sectors:
+        return (
+            screened
+            .head(finalist_limit)
+            .reset_index(drop=True)
+        )
+
+    selected_indices = []
+
+    per_sector = max(
+        6,
+        int(
+            np.ceil(
+                finalist_limit
+                / max(
+                    len(real_sectors) * 2,
+                    1,
+                )
+            )
+        ),
+    )
+
+    for sector in real_sectors:
+        sector_rows = screened[
+            screened["Sector"]
+            .astype(str)
+            == sector
+        ].head(per_sector)
+
+        selected_indices.extend(
+            sector_rows.index.tolist()
+        )
+
+    selected_indices = list(
+        dict.fromkeys(
+            selected_indices
+        )
+    )
+
+    diversified = screened.loc[
+        selected_indices
+    ].copy()
+
+    if len(diversified) < finalist_limit:
+        remaining = screened.drop(
+            index=selected_indices,
+            errors="ignore",
+        )
+
+        need = (
+            finalist_limit
+            - len(diversified)
+        )
+
+        diversified = pd.concat(
+            [
+                diversified,
+                remaining.head(need),
+            ],
+            ignore_index=True,
+        )
+
+    return (
+        diversified
+        .sort_values(
+            "Quick Score",
+            ascending=False,
+        )
+        .head(finalist_limit)
+        .reset_index(drop=True)
+    )
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
-def fast_screen_sector(sector_focus, finalist_limit=100):
+def fast_screen_sector(
+    sector_focus,
+    finalist_limit=150,
+):
     """
-    Stage 1 attempts a price-based screen of EVERY stock symbol in the
-    selected U.S.-listed universe. Expensive fundamentals/news/ML are saved
-    for the finalists.
+    Stage 1 still scans the broad selected U.S. universe, but the complete
+    quick-score table is now also saved locally. Rebuilding a portfolio
+    shortly afterward can therefore skip the full-market price scan.
     """
+    disk_cached = _read_screen_cache(
+        sector_focus
+    )
+
+    if (
+        disk_cached is not None
+        and not disk_cached.empty
+    ):
+        return _select_fast_finalists(
+            disk_cached,
+            sector_focus,
+            finalist_limit,
+        )
+
     yf = get_yfinance()
 
-    full_universe = get_us_stock_universe()
+    full_universe = (
+        get_us_stock_universe()
+    )
+
     universe = universe_for_sector(
         sector_focus,
         universe=full_universe,
@@ -1749,11 +2530,19 @@ def fast_screen_sector(sector_focus, finalist_limit=100):
     )
 
     rows = []
-    chunk_size = 150
 
-    for start_index in range(0, len(tickers), chunk_size):
+    # A moderately large batch reduces Python/network overhead without
+    # trying to make one enormous Yahoo request.
+    chunk_size = 220
+
+    for start_index in range(
+        0,
+        len(tickers),
+        chunk_size,
+    ):
         chunk = tickers[
-            start_index:start_index + chunk_size
+            start_index:
+            start_index + chunk_size
         ]
 
         try:
@@ -1774,9 +2563,13 @@ def fast_screen_sector(sector_focus, finalist_limit=100):
                 if len(chunk) == 1:
                     close = batch["Close"]
                 else:
-                    close = batch[ticker]["Close"]
+                    close = (
+                        batch[ticker]["Close"]
+                    )
 
-                quick = quick_screen_score(close)
+                quick = quick_screen_score(
+                    close
+                )
 
                 if quick is None:
                     continue
@@ -1784,12 +2577,26 @@ def fast_screen_sector(sector_focus, finalist_limit=100):
                 rows.append(
                     {
                         "Ticker": ticker,
-                        "Company": name_map.get(ticker, ticker),
-                        "Sector": sector_map.get(ticker, "Unknown"),
-                        "Exchange": exchange_map.get(ticker, ""),
-                        "Quick Score": quick,
+                        "Company":
+                            name_map.get(
+                                ticker,
+                                ticker,
+                            ),
+                        "Sector":
+                            sector_map.get(
+                                ticker,
+                                "Unknown",
+                            ),
+                        "Exchange":
+                            exchange_map.get(
+                                ticker,
+                                "",
+                            ),
+                        "Quick Score":
+                            quick,
                     }
                 )
+
             except Exception:
                 continue
 
@@ -1798,101 +2605,223 @@ def fast_screen_sector(sector_focus, finalist_limit=100):
 
     screened = (
         pd.DataFrame(rows)
-        .sort_values("Quick Score", ascending=False)
+        .sort_values(
+            "Quick Score",
+            ascending=False,
+        )
         .reset_index(drop=True)
     )
 
-    if sector_focus != "All US-listed stocks (all sectors)":
-        return screened.head(finalist_limit)
+    _write_screen_cache(
+        sector_focus,
+        screened,
+    )
 
-    real_sectors = [
-        sector
-        for sector in (
-            screened["Sector"]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
-        )
+    return _select_fast_finalists(
+        screened,
+        sector_focus,
+        finalist_limit,
+    )
+
+
+def _extract_batch_history(
+    batch,
+    ticker,
+    chunk_length,
+):
+    try:
         if (
-            sector.strip()
-            and sector.strip().lower() != "unknown"
-        )
-    ]
-
-    if not real_sectors:
-        return (
-            screened
-            .head(finalist_limit)
-            .reset_index(drop=True)
-        )
-
-    selected_indices = []
-
-    per_sector = max(
-        5,
-        int(
-            np.ceil(
-                finalist_limit
-                / max(len(real_sectors) * 2, 1)
+            isinstance(
+                batch.columns,
+                pd.MultiIndex,
             )
-        ),
-    )
+            and ticker
+            in batch.columns.get_level_values(0)
+        ):
+            frame = batch[
+                ticker
+            ].copy()
 
-    for sector in real_sectors:
-        sector_rows = screened[
-            screened["Sector"].astype(str) == sector
-        ].head(per_sector)
+        elif chunk_length == 1:
+            frame = batch.copy()
 
-        selected_indices.extend(
-            sector_rows.index.tolist()
+        else:
+            return None
+
+        return _clean_price_frame(
+            frame
         )
 
-    selected_indices = list(
-        dict.fromkeys(selected_indices)
-    )
+    except Exception:
+        return None
 
-    diversified = screened.loc[
-        selected_indices
-    ].copy()
 
-    if len(diversified) < finalist_limit:
-        remaining = screened.drop(
-            index=selected_indices,
-            errors="ignore",
-        )
+def prefetch_price_histories(tickers):
+    """
+    Batch-download 10-year history for the finalist pool and place each
+    ticker into the local cache.
 
-        need = finalist_limit - len(diversified)
-
-        diversified = pd.concat(
+    v9 made one 10-year Yahoo request per finalist. This is the main fix for
+    the large lists of valid symbols that randomly failed deep analysis.
+    """
+    tickers = list(
+        dict.fromkeys(
             [
-                diversified,
-                remaining.head(need),
-            ],
-            ignore_index=True,
+                str(t).strip().upper()
+                for t in tickers
+                if str(t).strip()
+            ]
         )
-
-    return (
-        diversified
-        .sort_values("Quick Score", ascending=False)
-        .head(finalist_limit)
-        .reset_index(drop=True)
     )
 
+    missing = []
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def portfolio_snapshot(ticker):
-    technical = technical_analysis(ticker)
+    for ticker in tickers:
+        if _read_price_cache(
+            ticker
+        ) is None:
+            missing.append(ticker)
+
+    if not missing:
+        return {
+            "requested": len(tickers),
+            "cached": len(tickers),
+            "downloaded": 0,
+            "failed": [],
+        }
+
+    yf = get_yfinance()
+    downloaded = 0
+    unresolved = []
+
+    chunk_size = 55
+
+    for start_index in range(
+        0,
+        len(missing),
+        chunk_size,
+    ):
+        chunk = missing[
+            start_index:
+            start_index + chunk_size
+        ]
+
+        try:
+            batch = yf.download(
+                tickers=chunk,
+                period="10y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+                threads=True,
+            )
+
+        except Exception:
+            batch = None
+
+        for ticker in chunk:
+            frame = (
+                _extract_batch_history(
+                    batch,
+                    ticker,
+                    len(chunk),
+                )
+                if batch is not None
+                else None
+            )
+
+            if frame is not None:
+                _write_price_cache(
+                    ticker,
+                    frame,
+                )
+                downloaded += 1
+            else:
+                unresolved.append(
+                    ticker
+                )
+
+    # Retry only the handful that failed the batch request.
+    final_failed = []
+
+    for ticker in unresolved:
+        frame = download_data(
+            ticker,
+            force_refresh=True,
+        )
+
+        if frame is None:
+            final_failed.append(
+                ticker
+            )
+
+    return {
+        "requested": len(tickers),
+        "cached":
+            len(tickers)
+            - len(missing),
+        "downloaded": downloaded,
+        "failed": final_failed,
+    }
+
+
+
+
+def portfolio_snapshot(
+    ticker,
+    company_fallback=None,
+    sector_fallback=None,
+    fast_ml=True,
+):
+    data = download_data(
+        ticker
+    )
+
+    technical = (
+        technical_analysis_from_data(
+            data
+        )
+    )
+
     if technical is None:
         return None
 
-    fundamentals = download_fundamentals(ticker)
-    earnings = download_latest_earnings(ticker)
-    news_items = download_news(ticker)
+    # Metadata is optional. Price history is the only hard requirement.
+    fundamentals = (
+        download_fundamentals(
+            ticker
+        )
+    )
+    earnings = (
+        download_latest_earnings(
+            ticker
+        )
+    )
+    news_items = (
+        download_news(
+            ticker
+        )
+    )
 
-    fund_score, _ = fundamental_score(fundamentals)
-    evt_score, _ = event_score(earnings, news_items)
-    reaction = market_reaction(technical, fund_score, evt_score)
+    fund_score, _ = (
+        fundamental_score(
+            fundamentals
+        )
+    )
+
+    evt_score, _ = (
+        event_score(
+            earnings,
+            news_items,
+        )
+    )
+
+    reaction = market_reaction(
+        technical,
+        fund_score,
+        evt_score,
+    )
 
     reaction_score = (
         reaction["opportunity_score"]
@@ -1900,11 +2829,12 @@ def portfolio_snapshot(ticker):
         else None
     )
 
-    # One portfolio-building ML horizon keeps the scan much faster than
-    # training all 3 forecast horizons for every candidate.
+    # Portfolio mode uses fewer trees than the one-stock detailed page.
+    # It keeps the same features and historical train/test logic.
     ml = predict_horizon(
         technical["data"],
         HORIZONS["3 Months"],
+        fast_mode=fast_ml,
     )
 
     (
@@ -1920,7 +2850,9 @@ def portfolio_snapshot(ticker):
         ml,
     )
 
-    label = label_from_score(overall)
+    label = label_from_score(
+        overall
+    )
 
     predicted_return = None
     directional_accuracy = None
@@ -1928,46 +2860,93 @@ def portfolio_snapshot(ticker):
     mae = None
 
     if ml is not None:
-        predicted_return = ml["predicted_return"]
-        directional_accuracy = ml["directional_accuracy"]
-        baseline_accuracy = ml["baseline_accuracy"]
+        predicted_return = (
+            ml["predicted_return"]
+        )
+        directional_accuracy = (
+            ml["directional_accuracy"]
+        )
+        baseline_accuracy = (
+            ml["baseline_accuracy"]
+        )
         mae = ml["mae"]
 
-    close = technical["data"]["Close"].dropna()
-    daily_returns = close.pct_change().dropna().tail(252)
+    close = (
+        technical["data"]
+        ["Close"]
+        .dropna()
+    )
+
+    daily_returns = (
+        close
+        .pct_change()
+        .dropna()
+        .tail(252)
+    )
 
     company_name = (
-        fundamentals.get("company_name")
-        if fundamentals
-        else None
+        (
+            fundamentals.get(
+                "company_name"
+            )
+            if fundamentals
+            else None
+        )
+        or company_fallback
+        or ticker
     )
 
     sector = (
-        fundamentals.get("sector")
-        if fundamentals
-        else None
+        (
+            fundamentals.get(
+                "sector"
+            )
+            if fundamentals
+            else None
+        )
+        or sector_fallback
+        or "Unknown"
     )
 
     return {
         "ticker": ticker,
-        "company_name": company_name,
+        "company_name":
+            company_name,
         "sector": sector,
-        "price": technical["price"],
-        "overall_score": overall,
+        "price":
+            technical["price"],
+        "overall_score":
+            overall,
         "signal": label,
-        "technical_score": technical["technical_score"],
-        "fundamental_score": fund_score,
-        "event_score": evt_score,
-        "reaction_score": reaction_score,
-        "ml_score": ml_score,
-        "ml_reliability": ml_reliability,
-        "ml_guardrail_note": ml_guardrail_note,
-        "volatility": technical["annualized_volatility"],
-        "predicted_return_3m": predicted_return,
-        "directional_accuracy": directional_accuracy,
-        "baseline_accuracy": baseline_accuracy,
+        "technical_score":
+            technical[
+                "technical_score"
+            ],
+        "fundamental_score":
+            fund_score,
+        "event_score":
+            evt_score,
+        "reaction_score":
+            reaction_score,
+        "ml_score":
+            ml_score,
+        "ml_reliability":
+            ml_reliability,
+        "ml_guardrail_note":
+            ml_guardrail_note,
+        "volatility":
+            technical[
+                "annualized_volatility"
+            ],
+        "predicted_return_3m":
+            predicted_return,
+        "directional_accuracy":
+            directional_accuracy,
+        "baseline_accuracy":
+            baseline_accuracy,
         "mae": mae,
-        "daily_returns": daily_returns,
+        "daily_returns":
+            daily_returns,
     }
 
 
@@ -2676,8 +3655,13 @@ if should_analyze:
 st.divider()
 st.subheader("AI Portfolio Builder")
 st.caption(
-    "All-sector mode now starts from the broad U.S.-listed stock market, not an index. "
-    "Stage 1 scans every available stock symbol, then the strongest finalists get fundamentals, news, overreaction, and ML analysis."
+    "All-sector mode starts from the broad U.S.-listed stock market. "
+    "v10 batch-loads price history, uses a multi-stage funnel, and locally caches market data so repeat runs are much faster."
+)
+
+st.caption(
+    "Local cache is enabled. On your own computer it persists across app restarts; "
+    "on Streamlit Community Cloud it is temporary and can reset after the app sleeps, reboots, or redeploys."
 )
 
 with st.expander(
@@ -2817,18 +3801,18 @@ with st.expander(
         with st.spinner(
             "Stage 1/2 — scanning every stock in the selected U.S. universe..."
         ):
-            # A whole-market search needs a much wider deep-analysis pool.
-            #
-            # Minimum: 100 finalists
-            # Larger portfolios: ~5x requested holdings
-            # Practical deep-analysis ceiling: 300 finalists
-            # Never exceed the real universe size.
+            # Stage 1 candidate pool can be very broad because this stage is
+            # only price-based. It is deliberately much larger than the later
+            # fundamentals/news/ML pool.
             finalist_limit = min(
                 selected_universe_size,
-                300,
                 max(
-                    100,
-                    holdings_count * 5,
+                    150,
+                    holdings_count,
+                    min(
+                        500,
+                        holdings_count * 5,
+                    ),
                 ),
             )
 
@@ -2860,49 +3844,252 @@ with st.expander(
                     hide_index=True,
                 )
 
+            # -------------------------------------------------
+            # Stage 2A: one batched 10-year history prefetch
+            # -------------------------------------------------
+            candidate_tickers = (
+                finalists[
+                    "Ticker"
+                ]
+                .astype(str)
+                .tolist()
+            )
+
+            with st.spinner(
+                "Stage 2A/2 — batch-loading 10-year histories and using the local cache..."
+            ):
+                prefetch_stats = (
+                    prefetch_price_histories(
+                        candidate_tickers
+                    )
+                )
+
+            st.caption(
+                "10Y history · {} already cached · {} newly batch-loaded · {} unavailable.".format(
+                    prefetch_stats[
+                        "cached"
+                    ],
+                    prefetch_stats[
+                        "downloaded"
+                    ],
+                    len(
+                        prefetch_stats[
+                            "failed"
+                        ]
+                    ),
+                )
+            )
+
+            # -------------------------------------------------
+            # Cheap deeper technical pass before expensive API calls
+            # -------------------------------------------------
+            technical_rows = []
+            technical_failures = []
+
+            for _, row in finalists.iterrows():
+                symbol = row[
+                    "Ticker"
+                ]
+
+                data = download_data(
+                    symbol
+                )
+
+                technical = (
+                    technical_analysis_from_data(
+                        data
+                    )
+                )
+
+                if technical is None:
+                    technical_failures.append(
+                        symbol
+                    )
+                    continue
+
+                # Blend the whole-market quick score with a deeper technical
+                # score from up to 10 years of cached history.
+                shortlist_score = (
+                    0.52
+                    * float(
+                        row[
+                            "Quick Score"
+                        ]
+                    )
+                    + 0.48
+                    * float(
+                        technical[
+                            "technical_score"
+                        ]
+                    )
+                )
+
+                technical_rows.append(
+                    {
+                        "Ticker":
+                            symbol,
+                        "Company":
+                            row.get(
+                                "Company",
+                                symbol,
+                            ),
+                        "Sector":
+                            row.get(
+                                "Sector",
+                                "Unknown",
+                            ),
+                        "Exchange":
+                            row.get(
+                                "Exchange",
+                                "",
+                            ),
+                        "Quick Score":
+                            row[
+                                "Quick Score"
+                            ],
+                        "Technical Score":
+                            technical[
+                                "technical_score"
+                            ],
+                        "Shortlist Score":
+                            shortlist_score,
+                    }
+                )
+
+            technical_table = (
+                pd.DataFrame(
+                    technical_rows
+                )
+                .sort_values(
+                    "Shortlist Score",
+                    ascending=False,
+                )
+                .reset_index(
+                    drop=True
+                )
+                if technical_rows
+                else pd.DataFrame()
+            )
+
+            if technical_table.empty:
+                st.error(
+                    "No candidates had enough usable price history for deeper analysis."
+                )
+                st.stop()
+
+            # Expensive metadata/news/ML is reserved for a smaller group.
+            # The requested number of holdings is always respected.
+            full_analysis_limit = min(
+                len(
+                    technical_table
+                ),
+                max(
+                    holdings_count,
+                    40,
+                    min(
+                        160,
+                        holdings_count * 4,
+                    ),
+                ),
+            )
+
+            deep_finalists = (
+                technical_table
+                .head(
+                    full_analysis_limit
+                )
+                .reset_index(
+                    drop=True
+                )
+            )
+
+            st.caption(
+                "{} price candidates → {} full fundamentals/news/ML finalists.".format(
+                    len(finalists),
+                    len(deep_finalists),
+                )
+            )
+
+            with st.expander(
+                "See full-analysis finalists",
+                expanded=False,
+            ):
+                st.dataframe(
+                    deep_finalists,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # -------------------------------------------------
+            # Stage 2B: expensive full analysis
+            # -------------------------------------------------
             snapshots = []
             failures = []
 
             progress = st.progress(0)
             status = st.empty()
 
-            total = len(finalists)
+            total = len(
+                deep_finalists
+            )
 
-            for index, row in finalists.iterrows():
-                symbol = row["Ticker"]
+            for index, row in deep_finalists.iterrows():
+                symbol = row[
+                    "Ticker"
+                ]
 
                 status.caption(
-                    "Stage 2/2 — deep analysis of {} ({}/{})...".format(
+                    "Stage 2B/2 — fundamentals, news & ML for {} ({}/{})...".format(
                         symbol,
                         index + 1,
                         total,
                     )
                 )
 
-                snapshot = portfolio_snapshot(
-                    symbol
-                )
+                try:
+                    snapshot = (
+                        portfolio_snapshot(
+                            symbol,
+                            company_fallback=
+                                row.get(
+                                    "Company",
+                                    symbol,
+                                ),
+                            sector_fallback=
+                                row.get(
+                                    "Sector",
+                                    "Unknown",
+                                ),
+                            fast_ml=True,
+                        )
+                    )
+                except Exception as exc:
+                    snapshot = None
 
                 if snapshot is None:
-                    failures.append(symbol)
+                    failures.append(
+                        symbol
+                    )
                 else:
-                    # If Yahoo's company info omitted the sector,
-                    # preserve the S&P 500 sector from the screening table.
-                    if not snapshot.get("sector"):
-                        snapshot["sector"] = row["Sector"]
-
-                    snapshots.append(snapshot)
+                    snapshots.append(
+                        snapshot
+                    )
 
                 progress.progress(
-                    (index + 1) / total
+                    (index + 1)
+                    / max(
+                        total,
+                        1,
+                    )
                 )
 
             status.empty()
             progress.empty()
 
+            # Correct v9's stale all-sector string.
             diversify_sectors = (
                 sector_focus
-                == "All sectors (diversified)"
+                == "All US-listed stocks (all sectors)"
             )
 
             result = build_ai_portfolio(
@@ -3118,7 +4305,7 @@ with st.expander(
                 )
 
                 st.write(
-                    "• Only the strongest finalists receive slower fundamentals, earnings/news, overreaction, and Random Forest analysis."
+                    "• The app batch-downloads and locally caches finalist price history, runs a cheap 10-year technical shortlist, then reserves fundamentals/news/Random Forest work for the strongest subset."
                 )
 
                 st.write(
@@ -3134,11 +4321,36 @@ with st.expander(
                         "• All-sector mode also penalizes sector concentration and caps how many holdings can come from one sector."
                     )
 
+                if technical_failures:
+                    with st.expander(
+                        "Stocks skipped for insufficient/unavailable price history ({})".format(
+                            len(
+                                technical_failures
+                            )
+                        ),
+                        expanded=False,
+                    ):
+                        st.write(
+                            ", ".join(
+                                technical_failures
+                            )
+                        )
+
                 if failures:
-                    st.caption(
-                        "Deep analysis could not load: "
-                        + ", ".join(failures)
-                    )
+                    with st.expander(
+                        "Full-analysis failures ({})".format(
+                            len(failures)
+                        ),
+                        expanded=False,
+                    ):
+                        st.write(
+                            ", ".join(
+                                failures
+                            )
+                        )
+                        st.caption(
+                            "These names already passed the price-history stage, so failures here are usually temporary metadata/API issues rather than missing stocks."
+                        )
 
                 st.info(
                     "This is a model-generated research portfolio, not a guarantee of returns. "
