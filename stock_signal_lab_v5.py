@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 
 
-st.set_page_config(page_title="Stock Signal Lab v4", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v5", page_icon="📈", layout="wide")
 
 # =========================================================
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
@@ -312,8 +312,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v4</div>
-        <h1>Stock Signal Lab <span>v4</span></h1>
+        <div class="app-eyebrow">Signal research · v5</div>
+        <h1>Stock Signal Lab <span>v5</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -834,6 +834,11 @@ def market_reaction(technical, fund_score, evt_score):
 
 
 def hybrid_score(technical_score_value, fundamental_score_value, event_score_value, reaction_score_value):
+    """
+    Legacy/non-ML hybrid score. Kept for compatibility with existing code.
+    The displayed signal now uses ml_adjusted_hybrid_score() whenever a
+    3-month forecast is available.
+    """
     parts = [(technical_score_value, 40)]
     if fundamental_score_value is not None:
         parts.append((fundamental_score_value, 25))
@@ -842,6 +847,218 @@ def hybrid_score(technical_score_value, fundamental_score_value, event_score_val
     if reaction_score_value is not None:
         parts.append((reaction_score_value, 15))
     return weighted_available(parts)
+
+
+def ml_forecast_component(forecast):
+    """
+    Converts the 3-month Random Forest forecast into a 0-100 score and
+    discounts it when historical validation is weak.
+
+    A 0% forecast is neutral (50).
+    Roughly -20% maps toward 0 and +20% maps toward 100 before the
+    reliability discount.
+    """
+    if forecast is None:
+        return None, 0.0
+
+    predicted_return = safe_float(
+        forecast.get("predicted_return")
+    )
+    direction_accuracy = safe_float(
+        forecast.get("directional_accuracy")
+    )
+    baseline_accuracy = safe_float(
+        forecast.get("baseline_accuracy")
+    )
+    mae = safe_float(
+        forecast.get("mae")
+    )
+
+    if predicted_return is None:
+        return None, 0.0
+
+    raw_ml_score = clamp(
+        50.0
+        + (
+            predicted_return / 0.20
+        ) * 50.0
+    )
+
+    # Start with moderate trust. Beating the always-up baseline raises
+    # trust; failing to beat it lowers trust, but does not zero it out.
+    reliability = 0.50
+
+    if (
+        direction_accuracy is not None
+        and baseline_accuracy is not None
+    ):
+        edge = (
+            direction_accuracy
+            - baseline_accuracy
+        )
+
+        reliability = float(
+            np.clip(
+                0.50 + edge * 2.5,
+                0.15,
+                0.90,
+            )
+        )
+
+    # Large historical error further reduces trust.
+    if mae is not None:
+        mae_penalty = float(
+            np.clip(
+                mae / 0.30,
+                0.0,
+                1.0,
+            )
+        )
+
+        reliability *= (
+            1.0
+            - 0.35 * mae_penalty
+        )
+
+    reliability = float(
+        np.clip(
+            reliability,
+            0.10,
+            0.90,
+        )
+    )
+
+    # Pull unreliable forecasts toward neutral rather than allowing them
+    # to dominate the score.
+    adjusted_ml_score = (
+        50.0
+        + (
+            raw_ml_score - 50.0
+        ) * reliability
+    )
+
+    return clamp(adjusted_ml_score), reliability
+
+
+def ml_adjusted_hybrid_score(
+    technical_score_value,
+    fundamental_score_value,
+    event_score_value,
+    reaction_score_value,
+    forecast_3m,
+):
+    """
+    Final score used for BUY/HOLD/SELL.
+
+    Target weights when every component is available:
+      Technical       30%
+      Fundamentals    20%
+      Earnings/News   15%
+      Market Reaction 10%
+      3M ML Forecast  25%
+
+    Missing components are reweighted automatically.
+    """
+    ml_score, ml_reliability = ml_forecast_component(
+        forecast_3m
+    )
+
+    parts = [
+        (
+            technical_score_value,
+            30,
+        )
+    ]
+
+    if fundamental_score_value is not None:
+        parts.append(
+            (
+                fundamental_score_value,
+                20,
+            )
+        )
+
+    if event_score_value is not None:
+        parts.append(
+            (
+                event_score_value,
+                15,
+            )
+        )
+
+    if reaction_score_value is not None:
+        parts.append(
+            (
+                reaction_score_value,
+                10,
+            )
+        )
+
+    if ml_score is not None:
+        parts.append(
+            (
+                ml_score,
+                25,
+            )
+        )
+
+    score = weighted_available(parts)
+    guardrail_note = None
+
+    # Guardrails stop the UI from showing a strong bullish label while a
+    # reasonably trustworthy 3M model is forecasting a meaningful decline.
+    if forecast_3m is not None:
+        predicted_return = safe_float(
+            forecast_3m.get(
+                "predicted_return"
+            )
+        )
+
+        if predicted_return is not None:
+            if (
+                predicted_return <= -0.08
+                and ml_reliability >= 0.45
+            ):
+                score = min(
+                    score,
+                    HOLD_THRESHOLD
+                    + (
+                        BUY_THRESHOLD
+                        - HOLD_THRESHOLD
+                    )
+                    - 0.1,
+                )
+
+                guardrail_note = (
+                    "3M ML forecast is {:.1%} with enough historical reliability "
+                    "to cap the final signal at HOLD."
+                ).format(
+                    predicted_return
+                )
+
+            elif (
+                predicted_return <= -0.05
+                and ml_reliability >= 0.35
+            ):
+                score = min(
+                    score,
+                    STRONG_BUY_THRESHOLD
+                    - 0.1,
+                )
+
+                guardrail_note = (
+                    "3M ML forecast is {:.1%}, so the final signal cannot be "
+                    "STRONG BUY unless the forecast becomes less negative."
+                ).format(
+                    predicted_return
+                )
+
+    return (
+        clamp(score),
+        ml_score,
+        ml_reliability,
+        guardrail_note,
+    )
 
 
 def label_from_score(score):
@@ -1279,21 +1496,27 @@ def portfolio_snapshot(ticker):
         else None
     )
 
-    overall = hybrid_score(
-        technical["technical_score"],
-        fund_score,
-        evt_score,
-        reaction_score,
-    )
-
-    label = label_from_score(overall)
-
     # One portfolio-building ML horizon keeps the scan much faster than
     # training all 3 forecast horizons for every candidate.
     ml = predict_horizon(
         technical["data"],
         HORIZONS["3 Months"],
     )
+
+    (
+        overall,
+        ml_score,
+        ml_reliability,
+        ml_guardrail_note,
+    ) = ml_adjusted_hybrid_score(
+        technical["technical_score"],
+        fund_score,
+        evt_score,
+        reaction_score,
+        ml,
+    )
+
+    label = label_from_score(overall)
 
     predicted_return = None
     directional_accuracy = None
@@ -1332,6 +1555,9 @@ def portfolio_snapshot(ticker):
         "fundamental_score": fund_score,
         "event_score": evt_score,
         "reaction_score": reaction_score,
+        "ml_score": ml_score,
+        "ml_reliability": ml_reliability,
+        "ml_guardrail_note": ml_guardrail_note,
         "volatility": technical["annualized_volatility"],
         "predicted_return_3m": predicted_return,
         "directional_accuracy": directional_accuracy,
@@ -1572,10 +1798,35 @@ def build_ai_portfolio(
     # correlated candidates receive a diversification penalty.
     #
     # In "All sectors" mode, we also discourage sector concentration.
-    max_per_sector = (
-        2
-        if holdings_count <= 6
-        else 3
+    known_sectors = {
+        (
+            item.get("sector")
+            or "Unknown"
+        )
+        for item in usable
+        if (
+            item.get("sector")
+            or "Unknown"
+        ) != "Unknown"
+    }
+
+    sector_count = max(
+        len(known_sectors),
+        1,
+    )
+
+    # Small portfolios stay tightly diversified. Larger portfolios can
+    # naturally hold more names per sector instead of hitting an arbitrary
+    # 2- or 3-stock ceiling.
+    max_per_sector = max(
+        2,
+        int(
+            np.ceil(
+                holdings_count
+                / float(sector_count)
+            )
+        )
+        + 1,
     )
 
     while (
@@ -1831,13 +2082,33 @@ if should_analyze:
             reaction = market_reaction(technical, fund_score, evt_score)
             reaction_score = reaction["opportunity_score"] if reaction is not None else None
 
-            overall = hybrid_score(
+            with st.spinner(
+                "Training historical ML forecasts..."
+            ):
+                forecasts = run_all_forecasts(
+                    ticker
+                )
+
+            forecast_3m = forecasts.get(
+                "3 Months"
+            )
+
+            (
+                overall,
+                ml_score,
+                ml_reliability,
+                ml_guardrail_note,
+            ) = ml_adjusted_hybrid_score(
                 technical["technical_score"],
                 fund_score,
                 evt_score,
                 reaction_score,
+                forecast_3m,
             )
-            label = label_from_score(overall)
+
+            label = label_from_score(
+                overall
+            )
 
             company_name = fundamentals.get("company_name") if fundamentals else None
 
@@ -1866,15 +2137,34 @@ if should_analyze:
             c1.metric("Hybrid Signal", label)
             c2.metric("Overall Score", "{:.1f}/100".format(overall))
             c3.metric("Current Price", "${:.2f}".format(technical["price"]))
-            st.caption("A blended view of technicals, fundamentals, earnings/news, and market reaction.")
+            st.caption("Final signal blends technicals, fundamentals, earnings/news, market reaction, and the reliability-adjusted 3M ML forecast.")
 
             st.divider()
             st.subheader("Score Breakdown")
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3, b4, b5 = st.columns(5)
             b1.metric("Technical", "{:.0f}/100".format(technical["technical_score"]))
             b2.metric("Fundamentals", "{:.0f}/100".format(fund_score) if fund_score is not None else "N/A")
             b3.metric("Earnings / News", "{:.0f}/100".format(evt_score) if evt_score is not None else "N/A")
             b4.metric("Reaction", "{:.0f}/100".format(reaction_score) if reaction_score is not None else "N/A")
+            b5.metric(
+                "3M ML",
+                "{:.0f}/100".format(ml_score)
+                if ml_score is not None
+                else "N/A",
+            )
+
+            if forecast_3m is not None:
+                st.caption(
+                    "3M ML forecast: {:+.1%} · ML reliability weight: {:.0%}".format(
+                        forecast_3m["predicted_return"],
+                        ml_reliability,
+                    )
+                )
+
+            if ml_guardrail_note:
+                st.warning(
+                    ml_guardrail_note
+                )
 
             st.subheader("Technical Picture")
             t1, t2, t3 = st.columns(3)
@@ -1949,11 +2239,8 @@ if should_analyze:
             st.subheader("Historical ML Forecasts")
             st.caption(
                 "The ML model is trained on historical price/volume features. "
-                "Current news/fundamentals affect the hybrid score, not the historical training set."
+                "The 3-month forecast now contributes to the final signal, but current news/fundamentals still remain outside the historical ML training set."
             )
-
-            with st.spinner("Training forecast models..."):
-                forecasts = run_all_forecasts(ticker)
 
             for horizon_label in HORIZONS:
                 forecast = forecasts.get(horizon_label)
@@ -2017,13 +2304,37 @@ with st.expander(
         key="portfolio_risk_profile",
     )
 
-    holdings_count = p3.slider(
+    selected_universe_size = max(
+        len(
+            universe_for_sector(
+                sector_focus
+            )
+        ),
+        1,
+    )
+
+    holdings_count = p3.number_input(
         "Holdings",
-        min_value=3,
-        max_value=8,
-        value=5,
+        min_value=1,
+        max_value=int(
+            selected_universe_size
+        ),
+        value=min(
+            5,
+            int(
+                selected_universe_size
+            ),
+        ),
         step=1,
         key="portfolio_holdings_count",
+        help=(
+            "Choose any number of holdings up to the number of stocks "
+            "available in the selected S&P 500 sector universe."
+        ),
+    )
+
+    holdings_count = int(
+        holdings_count
     )
 
     budget = p4.number_input(
@@ -2038,6 +2349,13 @@ with st.expander(
         key="portfolio_budget",
     )
 
+    if holdings_count > 25:
+        st.caption(
+            "Large portfolios are supported, but deep-analysis time rises with "
+            "the number of holdings because each finalist gets fundamentals, "
+            "news, overreaction analysis, and a Random Forest forecast."
+        )
+
     build_portfolio_clicked = st.button(
         "Find Stocks & Build Portfolio",
         type="primary",
@@ -2049,9 +2367,29 @@ with st.expander(
         with st.spinner(
             "Stage 1/2 — screening the selected stock universe..."
         ):
+            # Analyze enough finalists to support any requested portfolio size.
+            # Small portfolios keep a healthy competition pool; large portfolios
+            # scale the finalist pool automatically instead of stopping at 8 or 20.
+            finalist_limit = min(
+                selected_universe_size,
+                max(
+                    20,
+                    holdings_count
+                    + max(
+                        10,
+                        int(
+                            np.ceil(
+                                holdings_count
+                                * 0.25
+                            )
+                        ),
+                    ),
+                ),
+            )
+
             finalists = fast_screen_sector(
                 sector_focus,
-                finalist_limit=20,
+                finalist_limit=finalist_limit,
             )
 
         if finalists.empty:
@@ -2249,6 +2587,23 @@ with st.expander(
                             "Signal":
                                 holding["signal"],
 
+                            "3M ML Score":
+                                (
+                                    "{:.0f}/100".format(
+                                        holding["ml_score"]
+                                    )
+                                    if holding.get("ml_score") is not None
+                                    else "N/A"
+                                ),
+
+                            "ML Reliability":
+                                "{:.0%}".format(
+                                    holding.get(
+                                        "ml_reliability",
+                                        0.0,
+                                    )
+                                ),
+
                             "3M ML Forecast":
                                 (
                                     "{:+.1%}".format(
@@ -2322,7 +2677,7 @@ with st.expander(
                 )
 
                 st.write(
-                    "• Forecasts with weaker historical validation get less influence."
+                    "• The 3-month ML forecast directly affects the final stock rating, but weaker historical validation reduces its influence."
                 )
 
                 st.write(
@@ -2342,6 +2697,6 @@ with st.expander(
 
                 st.info(
                     "This is a model-generated research portfolio, not a guarantee of returns. "
-                    "The portfolio is selected from the current S&P 500 universe and can change as market data changes."
+                    "The portfolio is selected from the current S&P 500 universe and can use any requested number of holdings up to the available universe size. Results can change as market data changes."
                 )
 
