@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error
 
 
-st.set_page_config(page_title="Stock Signal Lab v2", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v4", page_icon="📈", layout="wide")
 
 # =========================================================
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
@@ -312,8 +312,8 @@ st.markdown(
     </style>
 
     <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v2</div>
-        <h1>Stock Signal Lab <span>v2</span></h1>
+        <div class="app-eyebrow">Signal research · v4</div>
+        <h1>Stock Signal Lab <span>v4</span></h1>
         <p>
             Technicals, fundamentals, earnings context, market-reaction signals,
             and historical machine-learning forecasts — presented in one clean view.
@@ -946,6 +946,843 @@ def run_all_forecasts(ticker):
     return {label: predict_horizon(data, days) for label, days in HORIZONS.items()}
 
 
+
+# =========================================================
+# AI PORTFOLIO BUILDER
+# Automatically discovers stocks from the S&P 500.
+# Stage 1: fast price-based screening.
+# Stage 2: deep hybrid + ML analysis only on finalists.
+# =========================================================
+
+SECTOR_OPTIONS = [
+    "All sectors (diversified)",
+    "Information Technology",
+    "Health Care",
+    "Financials",
+    "Consumer Discretionary",
+    "Communication Services",
+    "Industrials",
+    "Consumer Staples",
+    "Energy",
+    "Utilities",
+    "Real Estate",
+    "Materials",
+]
+
+# Fallback universe used only if the live S&P 500 constituent table
+# cannot be loaded. It keeps the deployed app usable.
+FALLBACK_SECTOR_UNIVERSE = {
+    "Information Technology": [
+        "AAPL", "MSFT", "NVDA", "AVGO", "ORCL", "CRM", "AMD", "ADBE",
+        "QCOM", "TXN", "INTU", "NOW", "MU", "AMAT", "LRCX",
+    ],
+    "Health Care": [
+        "LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG",
+        "AMGN", "GILD", "VRTX", "SYK", "BSX", "MDT",
+    ],
+    "Financials": [
+        "BRK-B", "JPM", "V", "MA", "BAC", "WFC", "GS", "MS",
+        "AXP", "BLK", "SPGI", "C", "SCHW", "PGR",
+    ],
+    "Consumer Discretionary": [
+        "AMZN", "TSLA", "HD", "MCD", "BKNG", "TJX", "LOW", "NKE",
+        "SBUX", "ORLY", "MAR", "GM", "F", "CMG",
+    ],
+    "Communication Services": [
+        "META", "GOOGL", "GOOG", "NFLX", "TMUS", "DIS", "VZ", "T",
+        "CMCSA", "CHTR", "EA", "TTWO",
+    ],
+    "Industrials": [
+        "GE", "CAT", "RTX", "UNP", "HON", "ETN", "BA", "DE",
+        "LMT", "UPS", "WM", "PH", "GD", "EMR",
+    ],
+    "Consumer Staples": [
+        "WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ",
+        "CL", "KMB", "SYY", "KDP",
+    ],
+    "Energy": [
+        "XOM", "CVX", "COP", "EOG", "SLB", "MPC", "PSX", "WMB",
+        "OKE", "VLO", "KMI", "OXY",
+    ],
+    "Utilities": [
+        "NEE", "SO", "DUK", "CEG", "AEP", "SRE", "D", "EXC",
+        "XEL", "PEG", "ED", "ETR",
+    ],
+    "Real Estate": [
+        "PLD", "AMT", "EQIX", "WELL", "SPG", "O", "DLR", "PSA",
+        "CCI", "VICI", "CBRE", "AVB",
+    ],
+    "Materials": [
+        "LIN", "SHW", "APD", "ECL", "FCX", "NEM", "NUE", "DOW",
+        "VMC", "MLM", "PPG", "CTVA",
+    ],
+}
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_sp500_constituents():
+    """
+    Returns a DataFrame with Symbol, Security, and GICS Sector.
+    Uses Wikipedia's S&P 500 constituent table, with a built-in fallback.
+    """
+    try:
+        tables = pd.read_html(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+        )
+        table = tables[0].copy()
+
+        needed = ["Symbol", "Security", "GICS Sector"]
+        if not all(col in table.columns for col in needed):
+            raise ValueError("Unexpected S&P 500 table format")
+
+        table = table[needed].copy()
+        table["Symbol"] = (
+            table["Symbol"]
+            .astype(str)
+            .str.replace(".", "-", regex=False)
+            .str.strip()
+        )
+
+        return table
+
+    except Exception:
+        rows = []
+        for sector, tickers in FALLBACK_SECTOR_UNIVERSE.items():
+            for ticker in tickers:
+                rows.append(
+                    {
+                        "Symbol": ticker,
+                        "Security": ticker,
+                        "GICS Sector": sector,
+                    }
+                )
+        return pd.DataFrame(rows)
+
+
+def universe_for_sector(sector_focus):
+    constituents = get_sp500_constituents()
+
+    if sector_focus == "All sectors (diversified)":
+        return constituents.copy()
+
+    return constituents[
+        constituents["GICS Sector"] == sector_focus
+    ].copy()
+
+
+def quick_screen_score(close):
+    """
+    Cheap first-pass score so we do not run fundamentals/news/ML on
+    hundreds of stocks. This is intentionally only a pre-screen.
+    """
+    close = close.dropna()
+
+    if len(close) < 200:
+        return None
+
+    price = safe_float(close.iloc[-1])
+    if price is None or price <= 0:
+        return None
+
+    ma20 = safe_float(close.rolling(20).mean().iloc[-1])
+    ma50 = safe_float(close.rolling(50).mean().iloc[-1])
+    ma200 = safe_float(close.rolling(200).mean().iloc[-1])
+
+    r1 = pct_return(close, 21)
+    r3 = pct_return(close, 63)
+    r6 = pct_return(close, 126)
+
+    rsi_value = safe_float(
+        calculate_rsi(close).iloc[-1]
+    )
+
+    daily = close.pct_change().dropna()
+    vol = safe_float(
+        daily.tail(63).std() * np.sqrt(252)
+    )
+
+    score = 0.0
+
+    score += scaled_points(r1, -0.10, 0.10, 14)
+    score += scaled_points(r3, -0.20, 0.20, 18)
+    score += scaled_points(r6, -0.30, 0.30, 22)
+
+    if ma20 is not None and price > ma20:
+        score += 8
+    if ma50 is not None and price > ma50:
+        score += 10
+    if ma200 is not None and price > ma200:
+        score += 12
+    if ma50 is not None and ma200 is not None and ma50 > ma200:
+        score += 8
+
+    if rsi_value is not None:
+        if 45 <= rsi_value <= 68:
+            score += 5
+        elif 35 <= rsi_value < 45 or 68 < rsi_value <= 75:
+            score += 3
+
+    if vol is not None:
+        if vol <= 0.25:
+            score += 3
+        elif vol <= 0.45:
+            score += 1
+
+    return clamp(score)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fast_screen_sector(sector_focus, finalist_limit=20):
+    """
+    Batch-downloads one year of prices and returns the strongest
+    first-pass candidates. For 'All sectors', finalists are deliberately
+    drawn across sectors so one hot industry cannot dominate the deep scan.
+    """
+    universe = universe_for_sector(sector_focus)
+
+    if universe.empty:
+        return pd.DataFrame()
+
+    tickers = universe["Symbol"].dropna().unique().tolist()
+    sector_map = dict(
+        zip(
+            universe["Symbol"],
+            universe["GICS Sector"],
+        )
+    )
+    name_map = dict(
+        zip(
+            universe["Symbol"],
+            universe["Security"],
+        )
+    )
+
+    rows = []
+    chunk_size = 80
+
+    for start_index in range(0, len(tickers), chunk_size):
+        chunk = tickers[start_index:start_index + chunk_size]
+
+        try:
+            batch = yf.download(
+                tickers=chunk,
+                period="1y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+                threads=True,
+            )
+        except Exception:
+            continue
+
+        for ticker in chunk:
+            try:
+                if len(chunk) == 1:
+                    close = batch["Close"]
+                else:
+                    close = batch[ticker]["Close"]
+
+                quick = quick_screen_score(close)
+
+                if quick is None:
+                    continue
+
+                rows.append(
+                    {
+                        "Ticker": ticker,
+                        "Company": name_map.get(ticker, ticker),
+                        "Sector": sector_map.get(ticker, "Unknown"),
+                        "Quick Score": quick,
+                    }
+                )
+            except Exception:
+                continue
+
+    if not rows:
+        return pd.DataFrame()
+
+    screened = (
+        pd.DataFrame(rows)
+        .sort_values("Quick Score", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    if sector_focus != "All sectors (diversified)":
+        return screened.head(finalist_limit)
+
+    # For the all-sector mode, guarantee broad representation in the
+    # deep-analysis pool before filling remaining places by score.
+    sectors = [
+        s for s in SECTOR_OPTIONS
+        if s != "All sectors (diversified)"
+    ]
+
+    selected_indices = []
+    per_sector = 2
+
+    for sector in sectors:
+        sector_rows = screened[
+            screened["Sector"] == sector
+        ].head(per_sector)
+
+        selected_indices.extend(
+            sector_rows.index.tolist()
+        )
+
+    selected_indices = list(dict.fromkeys(selected_indices))
+
+    diversified = screened.loc[
+        selected_indices
+    ].copy()
+
+    if len(diversified) < finalist_limit:
+        remaining = screened.drop(
+            index=selected_indices,
+            errors="ignore",
+        )
+
+        need = finalist_limit - len(diversified)
+        diversified = pd.concat(
+            [
+                diversified,
+                remaining.head(need),
+            ],
+            ignore_index=True,
+        )
+
+    return (
+        diversified
+        .sort_values("Quick Score", ascending=False)
+        .head(finalist_limit)
+        .reset_index(drop=True)
+    )
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def portfolio_snapshot(ticker):
+    technical = technical_analysis(ticker)
+    if technical is None:
+        return None
+
+    fundamentals = download_fundamentals(ticker)
+    earnings = download_latest_earnings(ticker)
+    news_items = download_news(ticker)
+
+    fund_score, _ = fundamental_score(fundamentals)
+    evt_score, _ = event_score(earnings, news_items)
+    reaction = market_reaction(technical, fund_score, evt_score)
+
+    reaction_score = (
+        reaction["opportunity_score"]
+        if reaction is not None
+        else None
+    )
+
+    overall = hybrid_score(
+        technical["technical_score"],
+        fund_score,
+        evt_score,
+        reaction_score,
+    )
+
+    label = label_from_score(overall)
+
+    # One portfolio-building ML horizon keeps the scan much faster than
+    # training all 3 forecast horizons for every candidate.
+    ml = predict_horizon(
+        technical["data"],
+        HORIZONS["3 Months"],
+    )
+
+    predicted_return = None
+    directional_accuracy = None
+    baseline_accuracy = None
+    mae = None
+
+    if ml is not None:
+        predicted_return = ml["predicted_return"]
+        directional_accuracy = ml["directional_accuracy"]
+        baseline_accuracy = ml["baseline_accuracy"]
+        mae = ml["mae"]
+
+    close = technical["data"]["Close"].dropna()
+    daily_returns = close.pct_change().dropna().tail(252)
+
+    company_name = (
+        fundamentals.get("company_name")
+        if fundamentals
+        else None
+    )
+
+    sector = (
+        fundamentals.get("sector")
+        if fundamentals
+        else None
+    )
+
+    return {
+        "ticker": ticker,
+        "company_name": company_name,
+        "sector": sector,
+        "price": technical["price"],
+        "overall_score": overall,
+        "signal": label,
+        "technical_score": technical["technical_score"],
+        "fundamental_score": fund_score,
+        "event_score": evt_score,
+        "reaction_score": reaction_score,
+        "volatility": technical["annualized_volatility"],
+        "predicted_return_3m": predicted_return,
+        "directional_accuracy": directional_accuracy,
+        "baseline_accuracy": baseline_accuracy,
+        "mae": mae,
+        "daily_returns": daily_returns,
+    }
+
+
+PORTFOLIO_PROFILES = {
+    "Conservative": {
+        "score_weight": 0.50,
+        "forecast_weight": 0.15,
+        "risk_weight": 0.35,
+        "correlation_penalty": 0.25,
+        "volatility_power": 1.25,
+        "strength_power": 1.0,
+        "max_weight": 0.30,
+    },
+    "Balanced": {
+        "score_weight": 0.50,
+        "forecast_weight": 0.25,
+        "risk_weight": 0.25,
+        "correlation_penalty": 0.16,
+        "volatility_power": 0.80,
+        "strength_power": 1.15,
+        "max_weight": 0.35,
+    },
+    "Aggressive": {
+        "score_weight": 0.43,
+        "forecast_weight": 0.42,
+        "risk_weight": 0.15,
+        "correlation_penalty": 0.08,
+        "volatility_power": 0.35,
+        "strength_power": 1.35,
+        "max_weight": 0.45,
+    },
+}
+
+
+def portfolio_base_strength(snapshot, profile):
+    score_factor = clamp(snapshot["overall_score"]) / 100.0
+
+    predicted = snapshot["predicted_return_3m"]
+    if predicted is None:
+        forecast_factor = 0.50
+    else:
+        # A -25% to +25% 3M forecast maps to 0..1.
+        forecast_factor = float(
+            np.clip(
+                (predicted + 0.25) / 0.50,
+                0.0,
+                1.0,
+            )
+        )
+
+    # Reduce how much confidence we place in a forecast that has weak
+    # historical validation. This does not fully discard it.
+    if (
+        snapshot["directional_accuracy"] is not None
+        and snapshot["baseline_accuracy"] is not None
+    ):
+        edge = (
+            snapshot["directional_accuracy"]
+            - snapshot["baseline_accuracy"]
+        )
+        reliability = float(
+            np.clip(
+                0.55 + edge * 2.0,
+                0.25,
+                0.90,
+            )
+        )
+    else:
+        reliability = 0.35
+
+    if snapshot["mae"] is not None:
+        error_penalty = float(
+            np.clip(
+                snapshot["mae"] / 0.35,
+                0.0,
+                1.0,
+            )
+        )
+        reliability *= 1.0 - 0.30 * error_penalty
+
+    # Pull uncertain forecasts toward neutral instead of treating them
+    # as equally reliable.
+    forecast_factor = (
+        reliability * forecast_factor
+        + (1.0 - reliability) * 0.50
+    )
+
+    volatility = snapshot["volatility"]
+    risk_factor = 1.0 - float(
+        np.clip(
+            (volatility - 0.15) / 0.55,
+            0.0,
+            1.0,
+        )
+    )
+
+    strength = (
+        profile["score_weight"] * score_factor
+        + profile["forecast_weight"] * forecast_factor
+        + profile["risk_weight"] * risk_factor
+    )
+
+    return float(strength)
+
+
+def max_positive_correlation(snapshot, selected):
+    if not selected:
+        return 0.0
+
+    candidate = snapshot["daily_returns"]
+    correlations = []
+
+    for chosen in selected:
+        other = chosen["daily_returns"]
+        aligned = pd.concat(
+            [candidate, other],
+            axis=1,
+            join="inner",
+        ).dropna()
+
+        if len(aligned) < 40:
+            continue
+
+        corr = safe_float(
+            aligned.iloc[:, 0].corr(
+                aligned.iloc[:, 1]
+            )
+        )
+
+        if corr is not None:
+            correlations.append(
+                max(corr, 0.0)
+            )
+
+    if not correlations:
+        return 0.0
+
+    return float(max(correlations))
+
+
+def cap_and_normalize_weights(raw_weights, max_weight):
+    raw = np.asarray(raw_weights, dtype=float)
+    raw = np.maximum(raw, 0.000001)
+
+    if raw.sum() <= 0:
+        raw = np.ones_like(raw)
+
+    weights = raw / raw.sum()
+
+    n = len(weights)
+    if n == 0:
+        return weights
+
+    # A cap below 1/n is mathematically impossible.
+    max_weight = max(
+        float(max_weight),
+        1.0 / n,
+    )
+
+    for _ in range(25):
+        over = weights > max_weight + 1e-10
+        if not np.any(over):
+            break
+
+        excess = float(
+            np.sum(
+                weights[over] - max_weight
+            )
+        )
+
+        weights[over] = max_weight
+        under = ~over
+
+        if not np.any(under):
+            break
+
+        under_total = float(
+            weights[under].sum()
+        )
+
+        if under_total <= 0:
+            weights[under] += (
+                excess
+                / int(np.sum(under))
+            )
+        else:
+            weights[under] += (
+                excess
+                * weights[under]
+                / under_total
+            )
+
+    return weights / weights.sum()
+
+
+def build_ai_portfolio(
+    snapshots,
+    holdings_count,
+    risk_profile,
+    diversify_sectors=False,
+):
+    profile = PORTFOLIO_PROFILES[
+        risk_profile
+    ]
+
+    usable = [
+        item
+        for item in snapshots
+        if item is not None
+    ]
+
+    if not usable:
+        return None
+
+    holdings_count = min(
+        holdings_count,
+        len(usable),
+    )
+
+    for item in usable:
+        item["base_strength"] = (
+            portfolio_base_strength(
+                item,
+                profile,
+            )
+        )
+
+    selected = []
+    remaining = list(usable)
+
+    # Greedy selection: strong candidates are preferred, but highly
+    # correlated candidates receive a diversification penalty.
+    #
+    # In "All sectors" mode, we also discourage sector concentration.
+    max_per_sector = (
+        2
+        if holdings_count <= 6
+        else 3
+    )
+
+    while (
+        len(selected) < holdings_count
+        and remaining
+    ):
+        best = None
+        best_adjusted = -999
+
+        for candidate in remaining:
+            candidate_sector = (
+                candidate.get("sector")
+                or "Unknown"
+            )
+
+            same_sector_count = sum(
+                1
+                for item in selected
+                if (
+                    item.get("sector")
+                    or "Unknown"
+                ) == candidate_sector
+            )
+
+            if (
+                diversify_sectors
+                and candidate_sector != "Unknown"
+                and same_sector_count >= max_per_sector
+            ):
+                continue
+
+            corr = max_positive_correlation(
+                candidate,
+                selected,
+            )
+
+            sector_penalty = 0.0
+
+            if (
+                diversify_sectors
+                and candidate_sector != "Unknown"
+            ):
+                sector_penalty = (
+                    0.055
+                    * same_sector_count
+                )
+
+            adjusted = (
+                candidate["base_strength"]
+                - profile[
+                    "correlation_penalty"
+                ]
+                * corr
+                - sector_penalty
+            )
+
+            if adjusted > best_adjusted:
+                best = candidate
+                best_adjusted = adjusted
+
+        # If the sector cap blocks every remaining candidate, relax it
+        # rather than returning too few holdings.
+        if best is None and remaining:
+            best = max(
+                remaining,
+                key=lambda item: item[
+                    "base_strength"
+                ],
+            )
+            best_adjusted = best[
+                "base_strength"
+            ]
+
+        if best is None:
+            break
+
+        chosen = dict(best)
+        chosen[
+            "selection_strength"
+        ] = best_adjusted
+
+        selected.append(chosen)
+
+        remaining = [
+            item
+            for item in remaining
+            if item["ticker"]
+            != best["ticker"]
+        ]
+
+    if not selected:
+        return None
+
+    raw_weights = []
+
+    for item in selected:
+        volatility = max(
+            item["volatility"],
+            0.08,
+        )
+
+        raw = (
+            max(
+                item["base_strength"],
+                0.05,
+            )
+            ** profile["strength_power"]
+        ) / (
+            volatility
+            ** profile["volatility_power"]
+        )
+
+        raw_weights.append(raw)
+
+    weights = cap_and_normalize_weights(
+        raw_weights,
+        profile["max_weight"],
+    )
+
+    for index, item in enumerate(selected):
+        item["weight"] = float(
+            weights[index]
+        )
+
+    # Portfolio-level risk estimate from recent daily covariance.
+    returns_frame = pd.DataFrame(
+        {
+            item["ticker"]:
+                item["daily_returns"]
+            for item in selected
+        }
+    ).dropna()
+
+    portfolio_volatility = None
+
+    if len(returns_frame) >= 40:
+        covariance = (
+            returns_frame.cov()
+            * 252
+        )
+
+        weight_vector = np.array(
+            [
+                item["weight"]
+                for item in selected
+            ]
+        )
+
+        try:
+            variance = float(
+                weight_vector.T
+                @ covariance.to_numpy()
+                @ weight_vector
+            )
+            portfolio_volatility = (
+                np.sqrt(
+                    max(
+                        variance,
+                        0.0,
+                    )
+                )
+            )
+        except Exception:
+            portfolio_volatility = None
+
+    forecast_items = [
+        item
+        for item in selected
+        if item[
+            "predicted_return_3m"
+        ] is not None
+    ]
+
+    weighted_forecast = None
+
+    if forecast_items:
+        forecast_weight_total = sum(
+            item["weight"]
+            for item in forecast_items
+        )
+
+        if forecast_weight_total > 0:
+            weighted_forecast = sum(
+                item["weight"]
+                * item[
+                    "predicted_return_3m"
+                ]
+                for item in forecast_items
+            ) / forecast_weight_total
+
+    weighted_score = sum(
+        item["weight"]
+        * item["overall_score"]
+        for item in selected
+    )
+
+    return {
+        "holdings": selected,
+        "weighted_score": weighted_score,
+        "weighted_forecast_3m":
+            weighted_forecast,
+        "portfolio_volatility":
+            portfolio_volatility,
+    }
+
+
+
 with st.sidebar:
     st.markdown("### Featured Picks")
     st.caption("Quick-launch a stock from your watchlist.")
@@ -1139,3 +1976,372 @@ if should_analyze:
                 "Research experiment only. The hybrid score combines technical, fundamental, "
                 "earnings/news, and reaction heuristics. ML forecasts use historical price/volume patterns."
             )
+
+
+# =========================================================
+# PORTFOLIO BUILDER UI
+# =========================================================
+
+st.divider()
+st.subheader("AI Portfolio Builder")
+st.caption(
+    "Pick a sector — or let the model mix all sectors. "
+    "The app finds the stocks itself, screens them, runs deep analysis on the finalists, "
+    "and builds a diversified portfolio."
+)
+
+with st.expander(
+    "Build a portfolio",
+    expanded=False,
+):
+    p1, p2, p3, p4 = st.columns(4)
+
+    sector_focus = p1.selectbox(
+        "Sector focus",
+        SECTOR_OPTIONS,
+        index=0,
+        key="portfolio_sector_focus",
+        help=(
+            "Choose one S&P 500 sector, or use all sectors for a diversified search."
+        ),
+    )
+
+    risk_profile = p2.selectbox(
+        "Risk profile",
+        [
+            "Conservative",
+            "Balanced",
+            "Aggressive",
+        ],
+        index=1,
+        key="portfolio_risk_profile",
+    )
+
+    holdings_count = p3.slider(
+        "Holdings",
+        min_value=3,
+        max_value=8,
+        value=5,
+        step=1,
+        key="portfolio_holdings_count",
+    )
+
+    budget = p4.number_input(
+        "Budget",
+        min_value=0.0,
+        value=10000.0,
+        step=1000.0,
+        help=(
+            "Use 0 if you only want percentages. "
+            "This version searches U.S. S&P 500 stocks, so allocations are in USD."
+        ),
+        key="portfolio_budget",
+    )
+
+    build_portfolio_clicked = st.button(
+        "Find Stocks & Build Portfolio",
+        type="primary",
+        use_container_width=True,
+        key="build_ai_portfolio_button",
+    )
+
+    if build_portfolio_clicked:
+        with st.spinner(
+            "Stage 1/2 — screening the selected stock universe..."
+        ):
+            finalists = fast_screen_sector(
+                sector_focus,
+                finalist_limit=20,
+            )
+
+        if finalists.empty:
+            st.error(
+                "The stock universe could not be screened right now. Try refreshing the app."
+            )
+
+        else:
+            st.caption(
+                "Fast screen found {} finalists from {}.".format(
+                    len(finalists),
+                    sector_focus,
+                )
+            )
+
+            with st.expander(
+                "See first-pass finalists",
+                expanded=False,
+            ):
+                st.dataframe(
+                    finalists,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            snapshots = []
+            failures = []
+
+            progress = st.progress(0)
+            status = st.empty()
+
+            total = len(finalists)
+
+            for index, row in finalists.iterrows():
+                symbol = row["Ticker"]
+
+                status.caption(
+                    "Stage 2/2 — deep analysis of {} ({}/{})...".format(
+                        symbol,
+                        index + 1,
+                        total,
+                    )
+                )
+
+                snapshot = portfolio_snapshot(
+                    symbol
+                )
+
+                if snapshot is None:
+                    failures.append(symbol)
+                else:
+                    # If Yahoo's company info omitted the sector,
+                    # preserve the S&P 500 sector from the screening table.
+                    if not snapshot.get("sector"):
+                        snapshot["sector"] = row["Sector"]
+
+                    snapshots.append(snapshot)
+
+                progress.progress(
+                    (index + 1) / total
+                )
+
+            status.empty()
+            progress.empty()
+
+            diversify_sectors = (
+                sector_focus
+                == "All sectors (diversified)"
+            )
+
+            result = build_ai_portfolio(
+                snapshots,
+                holdings_count,
+                risk_profile,
+                diversify_sectors=diversify_sectors,
+            )
+
+            if result is None:
+                st.error(
+                    "The portfolio builder could not get enough usable market data."
+                )
+
+            else:
+                st.markdown(
+                    "### Suggested {} Portfolio".format(
+                        risk_profile
+                    )
+                )
+
+                st.caption(
+                    "Sector focus: {}".format(
+                        sector_focus
+                    )
+                )
+
+                m1, m2, m3 = st.columns(3)
+
+                m1.metric(
+                    "Weighted Hybrid Score",
+                    "{:.1f}/100".format(
+                        result["weighted_score"]
+                    ),
+                )
+
+                if result["weighted_forecast_3m"] is not None:
+                    m2.metric(
+                        "Weighted 3M ML Forecast",
+                        "{:+.1%}".format(
+                            result[
+                                "weighted_forecast_3m"
+                            ]
+                        ),
+                    )
+                else:
+                    m2.metric(
+                        "Weighted 3M ML Forecast",
+                        "N/A",
+                    )
+
+                if result["portfolio_volatility"] is not None:
+                    m3.metric(
+                        "Est. Annualized Volatility",
+                        "{:.1%}".format(
+                            result[
+                                "portfolio_volatility"
+                            ]
+                        ),
+                    )
+                else:
+                    m3.metric(
+                        "Est. Annualized Volatility",
+                        "N/A",
+                    )
+
+                rows = []
+
+                for holding in result["holdings"]:
+                    predicted = holding[
+                        "predicted_return_3m"
+                    ]
+
+                    direction_accuracy = holding[
+                        "directional_accuracy"
+                    ]
+
+                    baseline = holding[
+                        "baseline_accuracy"
+                    ]
+
+                    allocation = (
+                        holding["weight"]
+                        * budget
+                    )
+
+                    approximate_shares = None
+
+                    if (
+                        budget > 0
+                        and holding["price"] > 0
+                    ):
+                        approximate_shares = int(
+                            np.floor(
+                                allocation
+                                / holding["price"]
+                            )
+                        )
+
+                    rows.append(
+                        {
+                            "Ticker":
+                                holding["ticker"],
+
+                            "Company":
+                                holding[
+                                    "company_name"
+                                ] or "",
+
+                            "Sector":
+                                holding.get(
+                                    "sector"
+                                ) or "",
+
+                            "Weight":
+                                "{:.1%}".format(
+                                    holding["weight"]
+                                ),
+
+                            "Hybrid Score":
+                                "{:.1f}".format(
+                                    holding[
+                                        "overall_score"
+                                    ]
+                                ),
+
+                            "Signal":
+                                holding["signal"],
+
+                            "3M ML Forecast":
+                                (
+                                    "{:+.1%}".format(
+                                        predicted
+                                    )
+                                    if predicted is not None
+                                    else "N/A"
+                                ),
+
+                            "Direction Accuracy":
+                                (
+                                    "{:.1%}".format(
+                                        direction_accuracy
+                                    )
+                                    if direction_accuracy is not None
+                                    else "N/A"
+                                ),
+
+                            "Always-Up Baseline":
+                                (
+                                    "{:.1%}".format(
+                                        baseline
+                                    )
+                                    if baseline is not None
+                                    else "N/A"
+                                ),
+
+                            "Volatility":
+                                "{:.1%}".format(
+                                    holding[
+                                        "volatility"
+                                    ]
+                                ),
+
+                            "Target Allocation":
+                                (
+                                    "${:,.0f}".format(
+                                        allocation
+                                    )
+                                    if budget > 0
+                                    else "—"
+                                ),
+
+                            "Approx. Shares":
+                                (
+                                    approximate_shares
+                                    if approximate_shares is not None
+                                    else "—"
+                                ),
+                        }
+                    )
+
+                portfolio_table = pd.DataFrame(rows)
+
+                st.dataframe(
+                    portfolio_table,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                st.markdown(
+                    "#### How it chose the portfolio"
+                )
+
+                st.write(
+                    "• First-pass screening scans the selected S&P 500 sector universe using momentum, trend, RSI, and volatility."
+                )
+
+                st.write(
+                    "• Only the strongest finalists receive slower fundamentals, earnings/news, overreaction, and Random Forest analysis."
+                )
+
+                st.write(
+                    "• Forecasts with weaker historical validation get less influence."
+                )
+
+                st.write(
+                    "• Correlated stocks are penalized so the portfolio is not just several versions of the same trade."
+                )
+
+                if diversify_sectors:
+                    st.write(
+                        "• All-sector mode also penalizes sector concentration and caps how many holdings can come from one sector."
+                    )
+
+                if failures:
+                    st.caption(
+                        "Deep analysis could not load: "
+                        + ", ".join(failures)
+                    )
+
+                st.info(
+                    "This is a model-generated research portfolio, not a guarantee of returns. "
+                    "The portfolio is selected from the current S&P 500 universe and can change as market data changes."
+                )
+
