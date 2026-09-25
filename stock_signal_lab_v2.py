@@ -17,7 +17,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-st.set_page_config(page_title="Mochi Market · Stock Signal Lab", page_icon="🌸", layout="wide")
+st.set_page_config(page_title="femboy investing · Stock Signal Lab", page_icon="🌸", layout="wide")
 
 
 
@@ -366,7 +366,7 @@ hr{border-color:#eed6e2;}[data-testid="stAlert"]{border-radius:14px;}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
 """, unsafe_allow_html=True)
-st.markdown('<div class="app-hero"><div class="hero-copy"><div class="app-eyebrow">♡ your little investing corner</div><h1>Mochi Market<span style="color:#d77ca7">.</span></h1><p>A softer space for serious research.<br>Your stocks, a little clearer.</p><div class="hero-foot">Meet Mochi, Miso &amp; Twinkle ✧</div></div><img class="hero-art" alt="Mochi the bunny holding a strawberry, Miso the lilac kitten, and Twinkle the smiling star" src="' + MASCOT_URI + '"></div>', unsafe_allow_html=True)
+st.markdown('<div class="app-hero"><div class="hero-copy"><div class="app-eyebrow">♡ your little investing corner</div><h1>femboy investing<span style="color:#d77ca7">.</span></h1><p>A softer space for serious research.<br>Your stocks, a little clearer.</p><div class="hero-foot">Meet Mochi, Miso &amp; Twinkle ✧</div></div><img class="hero-art" alt="Mochi the bunny holding a strawberry, Miso the lilac kitten, and Twinkle the smiling star" src="' + MASCOT_URI + '"></div>', unsafe_allow_html=True)
 
 
 STRONG_BUY_THRESHOLD = 80
@@ -3897,7 +3897,7 @@ if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = [symbol for symbol, _ in FEATURED_STOCKS]
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-brand">♡ Mochi Market</div><img class="sidebar-art" alt="Your bunny and kitten research companions" src="'+MASCOT_URI+'"><div class="sidebar-note">a little company for your watchlist</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-brand">♡ femboy investing</div><img class="sidebar-art" alt="Your bunny and kitten research companions" src="'+MASCOT_URI+'"><div class="sidebar-note">a little company for your watchlist</div>', unsafe_allow_html=True)
     st.markdown("### My watchlist")
     st.caption("Pick a stock. Let’s take a peek.")
     for symbol in st.session_state["watchlist"]:
