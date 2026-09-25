@@ -9,9 +9,12 @@ import re
 import tempfile
 import time
 import shutil
+import hashlib
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-st.set_page_config(page_title="Stock Signal Lab v14", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v15", page_icon="📈", layout="wide")
 
 
 
@@ -160,7 +163,9 @@ def _read_json_cache(kind, ticker, ttl_seconds):
 
 def _write_json_cache(kind, ticker, value):
     path = _json_cache_path(kind, ticker)
-    temp_path = path.with_suffix(".tmp")
+    # Concurrent forecasts can share an identical data fingerprint.
+    # Give each writer its own temporary file before atomic replacement.
+    temp_path = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
 
     try:
         temp_path.write_text(
@@ -396,7 +401,7 @@ def _clean_price_frame(data, ticker=None):
     ):
         return None
 
-    frame = data.copy()
+    frame = data
 
     if isinstance(
         frame.columns,
@@ -496,6 +501,7 @@ def _clean_price_frame(data, ticker=None):
                 price_names
             ):
                 try:
+                    frame = frame.copy(deep=False)
                     frame.columns = (
                         frame.columns
                         .get_level_values(0)
@@ -507,6 +513,7 @@ def _clean_price_frame(data, ticker=None):
                 price_names
             ):
                 try:
+                    frame = frame.copy(deep=False)
                     frame.columns = (
                         frame.columns
                         .get_level_values(1)
@@ -516,6 +523,8 @@ def _clean_price_frame(data, ticker=None):
 
             else:
                 return None
+
+    frame = frame.copy()
 
     # Clean duplicate columns after flattening.
     if frame.columns.duplicated().any():
@@ -1777,7 +1786,7 @@ def train_forecast_model(dataset, fast_mode=False, horizon_days=63):
         ),
         min_samples_leaf=5,
         random_state=42,
-        n_jobs=(2 if fast_mode else -1),
+        n_jobs=1,
     )
     model.fit(X_train, y_train)
     pred = model.predict(X_test)
@@ -1794,6 +1803,11 @@ def train_forecast_model(dataset, fast_mode=False, horizon_days=63):
 
 @st.cache_data(ttl=21600, show_spinner=False, max_entries=1024)
 def predict_horizon(data, horizon_days, fast_mode=False):
+    data_hash = hashlib.sha256(pd.util.hash_pandas_object(data, index=True).values.tobytes()).hexdigest()
+    cache_key = "{}-{}-{}".format(data_hash, horizon_days, int(fast_mode))
+    persisted = _read_json_cache("forecast_v15", cache_key, PRICE_CACHE_TTL)
+    if persisted is not None:
+        return persisted
     dataset = build_training_dataset(data, horizon_days)
     trained = train_forecast_model(dataset, fast_mode=fast_mode, horizon_days=horizon_days)
     if trained is None:
@@ -1808,13 +1822,15 @@ def predict_horizon(data, horizon_days, fast_mode=False):
     predicted_return = float(model.predict(row)[0])
     current_price = float(data["Close"].dropna().iloc[-1])
 
-    return {
+    result = {
         "predicted_return": predicted_return,
         "estimated_price": current_price * (1 + predicted_return),
         "mae": mae,
         "directional_accuracy": direction_acc,
         "baseline_accuracy": baseline_acc,
     }
+    _write_json_cache("forecast_v15", cache_key, result)
+    return result
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1822,7 +1838,9 @@ def run_all_forecasts(ticker):
     data = download_data(ticker)
     if data is None:
         return {}
-    return {label: predict_horizon(data, days) for label, days in HORIZONS.items()}
+    with ThreadPoolExecutor(max_workers=min(3, os.cpu_count() or 1)) as executor:
+        jobs = {executor.submit(predict_horizon, data, days): label for label, days in HORIZONS.items()}
+        return {jobs[job]: job.result() for job in as_completed(jobs)}
 
 
 
@@ -1933,6 +1951,16 @@ def looks_like_common_stock_name(name):
 
 @st.cache_data(ttl=21600, show_spinner=False)
 def get_us_stock_universe():
+    cached = _read_json_cache("universe_v15", "US", 21600)
+    if cached:
+        return pd.DataFrame.from_records(cached)
+    universe = _fetch_us_stock_universe()
+    if not universe.empty:
+        _write_json_cache("universe_v15", "US", universe.to_dict("records"))
+    return universe
+
+
+def _fetch_us_stock_universe():
     """
     Broad U.S.-listed stock universe.
 
@@ -2453,33 +2481,18 @@ def _select_fast_finalists(
     )
 
 
-def _extract_close_series(
-    batch,
-    ticker,
-):
-    frame = _clean_price_frame(
-        batch,
-        ticker=ticker,
-    )
-
-    if (
-        frame is None
-        or "Close"
-        not in frame.columns
-    ):
+def _extract_close_series(batch, ticker):
+    if batch is None or batch.empty:
         return None
-
-    close = frame["Close"]
-
-    if isinstance(
-        close,
-        pd.DataFrame,
-    ):
-        if close.shape[1] < 1:
-            return None
-        close = close.iloc[:, 0]
-
-    return close.dropna()
+    if isinstance(batch.columns, pd.MultiIndex):
+        for key in ((ticker, "Close"), ("Close", ticker)):
+            if key in batch.columns:
+                close = batch[key]
+                if isinstance(close, pd.DataFrame):
+                    close = close.iloc[:, 0]
+                return close.dropna()
+    frame = _clean_price_frame(batch, ticker=ticker)
+    return frame["Close"].dropna() if frame is not None else None
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -2487,6 +2500,7 @@ def fast_screen_sector(
     sector_focus,
     finalist_limit=150,
     scan_limit=600,
+    _progress=None,
 ):
     """
     Stage 1 still scans the broad selected U.S. universe, but the complete
@@ -2570,10 +2584,20 @@ def fast_screen_sector(
     )
 
     rows = []
+    uncached_tickers = []
+    for symbol in tickers:
+        cached_score = _read_json_cache("quick_score_v15", symbol, FAST_SCREEN_CACHE_TTL)
+        if cached_score is not None:
+            rows.append({"Ticker": symbol, "Company": name_map.get(symbol, symbol),
+                         "Sector": sector_map.get(symbol, "Unknown"), "Exchange": exchange_map.get(symbol, ""),
+                         "Quick Score": cached_score})
+        else:
+            uncached_tickers.append(symbol)
+    tickers = uncached_tickers
 
     # A moderately large batch reduces Python/network overhead without
     # trying to make one enormous Yahoo request.
-    chunk_size = 220
+    chunk_size = 100
 
     for start_index in range(
         0,
@@ -2584,6 +2608,11 @@ def fast_screen_sector(
             start_index:
             start_index + chunk_size
         ]
+
+        if _progress is not None:
+            _progress("Screening market data: {} / {} symbols requested; {} scores ready".format(
+                start_index, len(tickers), len(rows)
+            ))
 
         try:
             batch = yf.download(
@@ -2615,6 +2644,7 @@ def fast_screen_sector(
 
                 if quick is None:
                     continue
+                _write_json_cache("quick_score_v15", ticker, quick)
 
                 rows.append(
                     {
@@ -3354,6 +3384,8 @@ def build_ai_portfolio(
     correlations = pd.DataFrame({item["ticker"]: item["daily_returns"] for item in usable}).corr(min_periods=40).fillna(0.0).clip(lower=0.0)
     selected = []
     remaining = list(usable)
+    maximum_correlations = {item["ticker"]: 0.0 for item in usable}
+    selected_sector_counts = {}
 
     # Greedy selection: strong candidates are preferred, but highly
     # correlated candidates receive a diversification penalty.
@@ -3403,14 +3435,7 @@ def build_ai_portfolio(
                 or "Unknown"
             )
 
-            same_sector_count = sum(
-                1
-                for item in selected
-                if (
-                    item.get("sector")
-                    or "Unknown"
-                ) == candidate_sector
-            )
+            same_sector_count = selected_sector_counts.get(candidate_sector, 0)
 
             if (
                 diversify_sectors
@@ -3419,7 +3444,7 @@ def build_ai_portfolio(
             ):
                 continue
 
-            corr = max((float(correlations.at[candidate["ticker"], item["ticker"]]) for item in selected), default=0.0)
+            corr = maximum_correlations[candidate["ticker"]]
 
             sector_penalty = 0.0
 
@@ -3467,6 +3492,12 @@ def build_ai_portfolio(
         ] = best_adjusted
 
         selected.append(chosen)
+        chosen_sector = chosen.get("sector") or "Unknown"
+        selected_sector_counts[chosen_sector] = selected_sector_counts.get(chosen_sector, 0) + 1
+        latest_correlations = correlations[chosen["ticker"]]
+        for item in remaining:
+            symbol = item["ticker"]
+            maximum_correlations[symbol] = max(maximum_correlations[symbol], float(latest_correlations[symbol]))
 
         remaining = [
             item
@@ -3669,10 +3700,15 @@ if should_analyze:
         st.warning("Enter a ticker first.")
     else:
         with st.spinner("Pulling price, fundamentals, earnings, and news..."):
-            technical = technical_analysis(ticker)
-            fundamentals = download_fundamentals(ticker)
-            earnings = download_latest_earnings(ticker)
-            news_items = download_news(ticker)
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                technical_job = executor.submit(technical_analysis, ticker)
+                fund_job = executor.submit(download_fundamentals, ticker)
+                earnings_job = executor.submit(download_latest_earnings, ticker)
+                news_job = executor.submit(download_news, ticker)
+                technical = technical_job.result()
+                fundamentals = fund_job.result()
+                earnings = earnings_job.result()
+                news_items = news_job.result()
 
         if technical is None:
             st.error("Could not load usable price history for that ticker. Try Refresh cached data once; if it still fails, Yahoo may not currently expose that symbol.")
@@ -4028,11 +4064,14 @@ with st.expander(
                 max(40, holdings_count + min(30, holdings_count)),
             )
 
+            screen_status = st.empty()
             finalists = fast_screen_sector(
                 sector_focus,
                 finalist_limit=finalist_limit,
                 scan_limit=(None if full_market_scan else max(600, holdings_count * 2)),
+                _progress=screen_status.caption,
             )
+            screen_status.empty()
 
         if finalists.empty:
             st.error(
@@ -4292,21 +4331,18 @@ with st.expander(
                         refreshed = _read_price_cache(symbol)
                         if refreshed is not None and len(refreshed) > len(technical_map[symbol]["data"]):
                             technical_map[symbol] = technical_analysis_from_data(refreshed)
-                for index, holding in enumerate(selected):
-                    symbol = holding["ticker"]
-                    status.caption(
-                        "Training ML for selected holding {} ({}/{})...".format(
-                            symbol, index + 1, len(selected)
-                        )
-                    )
-                    # Price data was loaded during the candidate pass. Optional
-                    # fundamentals/news must not block a complete portfolio.
-                    try:
-                        add_portfolio_ml(holding, technical_map.get(symbol))
-                    except Exception as exc:
-                        holding["ml_status"] = "Model error: {}".format(exc)
-                        failures.append(symbol)
-                    progress.progress((index + 1) / len(selected))
+                workers = min(4, os.cpu_count() or 1, len(selected))
+                with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+                    jobs = {executor.submit(add_portfolio_ml, holding, technical_map.get(holding["ticker"])): holding for holding in selected}
+                    for done, job in enumerate(as_completed(jobs), 1):
+                        holding = jobs[job]
+                        try:
+                            job.result()
+                        except Exception as exc:
+                            holding["ml_status"] = "Model error: {}".format(exc)
+                            failures.append(holding["ticker"])
+                        status.caption("ML forecasts ready: {}/{}".format(done, len(selected)))
+                        progress.progress(done / len(selected))
                 status.empty()
                 progress.empty()
                 # Recalculate scores, weights, and weighted forecast on exactly
