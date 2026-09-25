@@ -16,36 +16,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-# Keep the app's palette authoritative even when an older pink config is deployed.
-# Streamlit serializes these server theme options for native widgets and tables.
-from streamlit import config as _theme_config
-
-_cool_theme = {
-    "primaryColor": "#365B76", "backgroundColor": "#F5F7F9",
-    "secondaryBackgroundColor": "#E6ECF1", "textColor": "#18232F",
-    "borderColor": "#93A4B3", "dataframeBorderColor": "#93A4B3",
-    "dataframeHeaderBackgroundColor": "#DBE5ED", "codeBackgroundColor": "#E6ECF1",
-    "linkColor": "#365B76", "codeTextColor": "#354757",
-    "chartCategoricalColors": ["#365B76", "#66849A", "#92AABB", "#233C50"],
-    "chartSequentialColors": ["#EDF2F5", "#CBD9E4", "#92AABB", "#66849A", "#365B76", "#233C50"],
-    "chartDivergingColors": ["#233C50", "#66849A", "#EDF2F5", "#92AABB", "#354757"],
-}
-for _hue in ("red", "orange", "yellow", "blue", "green", "violet", "gray"):
-    _cool_theme.update({_hue + "Color": "#536675", _hue + "BackgroundColor": "#E6ECF1",
-                        _hue + "TextColor": "#354757"})
-_theme_options = _theme_config.get_config_options()
-_theme_changed = False
-for _scope in ("theme", "theme.sidebar", "theme.light", "theme.light.sidebar", "theme.dark", "theme.dark.sidebar"):
-    for _name, _value in _cool_theme.items():
-        if _scope + "." + _name in _theme_options:
-            _theme_changed |= _theme_config.get_option(_scope + "." + _name) != _value
-            _theme_config.set_option(_scope + "." + _name, _value)
-_theme_changed |= _theme_config.get_option("theme.base") != "light"
-_theme_config.set_option("theme.base", "light")
-if _theme_changed:
-    # Theme metadata is sent before the script starts; resend it after an override.
-    st.rerun()
-
+# Let Streamlit own the active theme.  The companion .streamlit/config.toml
+# defines matching cool light/dark palettes, and the CSS below consumes the
+# active theme variables instead of forcing a light palette at runtime.
 st.set_page_config(page_title="Buyntiq", page_icon="◼", layout="wide")
 
 
@@ -312,10 +285,24 @@ def get_yfinance():
 
 st.markdown("""
 <style>
-:root { color-scheme: light; --ink:#18232f; --secondary:#354757; --muted:#536675; --border:#18232f; --subtle:#e6ecf1; --surface:#f5f7f9; }
-.stApp { background:linear-gradient(145deg,#f8fafb 0%,#e8eef3 55%,#dce5ec 100%) fixed; color:var(--ink); }
-[data-testid="stHeader"] { background:#f5f7f9; border-bottom:2px solid var(--ink); }
-[data-testid="stSidebar"] { background:linear-gradient(180deg,#edf2f6 0%,#dbe5ed 100%); border-right:2px solid var(--ink); }
+/* Theme bridge: use Streamlit's active light/dark values everywhere. */
+:root {
+  --ink: var(--st-text-color, var(--text-color, #18232f));
+  --surface: var(--st-background-color, var(--background-color, #f5f7f9));
+  --subtle: var(--st-secondary-background-color, var(--secondary-background-color, #e6ecf1));
+  --accent: var(--st-primary-color, var(--primary-color, #365b76));
+  --secondary: color-mix(in srgb, var(--ink) 78%, var(--surface));
+  --muted: color-mix(in srgb, var(--ink) 58%, var(--surface));
+  --border: color-mix(in srgb, var(--ink) 82%, var(--surface));
+  --surface-soft: color-mix(in srgb, var(--subtle) 72%, var(--surface));
+  --surface-strong: color-mix(in srgb, var(--subtle) 84%, var(--ink) 16%);
+  --surface-hover: color-mix(in srgb, var(--subtle) 78%, var(--ink) 22%);
+  --shadow: color-mix(in srgb, var(--ink) 82%, transparent);
+  --focus: var(--accent);
+}
+.stApp { background:linear-gradient(145deg,var(--surface) 0%,var(--surface-soft) 55%,var(--subtle) 100%) fixed; color:var(--ink); }
+[data-testid="stHeader"] { background:color-mix(in srgb,var(--surface) 94%,transparent); border-bottom:2px solid var(--border); }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,var(--surface-soft) 0%,var(--subtle) 100%); border-right:2px solid var(--border); }
 [data-testid="stSidebar"] .block-container { padding-top:2.2rem; }
 .block-container { max-width:1080px; padding-top:2.5rem; padding-bottom:5rem; }
 html,body,button,input,textarea { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
@@ -323,7 +310,7 @@ h1,h2,h3,h4 { color:var(--ink)!important; letter-spacing:-.035em; font-weight:65
 h1 { font-size:2.35rem!important; } h2 { font-size:1.55rem!important; } h3 { font-size:1.18rem!important; }
 p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
 [data-testid="stCaptionContainer"] p { color:var(--muted); font-size:.82rem; line-height:1.55; }
-.app-hero { background:linear-gradient(125deg,#dce7f0 0%,#edf2f5 52%,#c6d5e2 100%); padding:2rem 2.1rem 1.8rem; margin:0 9px 2.8rem 0; border:3px solid var(--ink); box-shadow:8px 8px 0 var(--ink); }
+.app-hero { background:linear-gradient(125deg,var(--surface-strong) 0%,var(--surface-soft) 52%,var(--subtle) 100%); padding:2rem 2.1rem 1.8rem; margin:0 9px 2.8rem 0; border:3px solid var(--border); box-shadow:8px 8px 0 var(--shadow); }
 .app-eyebrow { color:var(--muted); font-size:.68rem; font-weight:750; letter-spacing:.14em; text-transform:uppercase; }
 .app-hero h1 { margin:.6rem 0 .55rem; font-size:clamp(2.6rem,5.5vw,4.15rem)!important; line-height:1.04; text-transform:uppercase; font-weight:850!important; letter-spacing:-.06em; }
 .app-hero p { max-width:620px; color:var(--secondary); line-height:1.65; margin:0; }
@@ -332,64 +319,64 @@ p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
 .app-nav a:hover,.app-nav a:focus { color:var(--ink); border-color:var(--ink); }
 .sidebar-brand { color:var(--ink); font-size:1.26rem; font-weight:900; text-transform:uppercase; letter-spacing:-.06em; line-height:1.08; margin-bottom:.55rem; }
 .sidebar-description { color:var(--muted); font-size:.79rem; line-height:1.5; margin-bottom:1.4rem; }
-[data-testid="stMetric"] { background:linear-gradient(135deg,#f9fbfc,#e3eaf0); border:2px solid var(--ink); border-radius:0; box-shadow:4px 4px 0 var(--ink); padding:1rem 1.1rem; min-height:108px; margin:0 4px 5px 0; }
+[data-testid="stMetric"] { background:linear-gradient(135deg,var(--surface),var(--surface-soft)); border:2px solid var(--border); border-radius:0; box-shadow:4px 4px 0 var(--shadow); padding:1rem 1.1rem; min-height:108px; margin:0 4px 5px 0; }
 [data-testid="stMetricValue"] { color:var(--ink); font-size:1.7rem; letter-spacing:-.04em; }
 [data-testid="stMetricLabel"] { color:var(--muted); font-size:.8rem; }
-.stButton button,.stDownloadButton button,[data-testid="stFormSubmitButton"] button { background:linear-gradient(135deg,#edf2f5,#cbd9e4); color:var(--ink)!important; border:2px solid var(--ink); border-radius:0; font-size:.84rem; font-weight:800; letter-spacing:.005em; min-height:43px; box-shadow:3px 3px 0 var(--ink); transition:background .14s ease,transform .14s ease,box-shadow .14s ease; }
-.stButton button:hover,.stDownloadButton button:hover,[data-testid="stFormSubmitButton"] button:hover { background:linear-gradient(135deg,#d9e5ee,#b7cad9); border-color:var(--ink); color:var(--ink)!important; transform:translate(-2px,-2px); box-shadow:5px 5px 0 var(--ink);  }
-.stButton button:focus-visible,[data-testid="stFormSubmitButton"] button:focus-visible { outline:3px solid var(--ink); outline-offset:4px; }
-.stButton button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--ink); border-color:var(--ink); color:#fff!important; }
-.stButton button[kind="primary"]:hover,[data-testid="stFormSubmitButton"] button[kind="primary"]:hover { background:#344c60; border-color:var(--ink); color:#fff!important; }
-.stButton button[kind="primary"] p,[data-testid="stFormSubmitButton"] button[kind="primary"] p { color:#fff!important; font-size:1rem!important; font-weight:800!important; letter-spacing:.03em; }
+.stButton button,.stDownloadButton button,[data-testid="stFormSubmitButton"] button { background:linear-gradient(135deg,var(--surface-soft),var(--subtle)); color:var(--ink)!important; border:2px solid var(--border); border-radius:0; font-size:.84rem; font-weight:800; letter-spacing:.005em; min-height:43px; box-shadow:3px 3px 0 var(--shadow); transition:background .14s ease,transform .14s ease,box-shadow .14s ease; }
+.stButton button:hover,.stDownloadButton button:hover,[data-testid="stFormSubmitButton"] button:hover { background:linear-gradient(135deg,var(--surface-hover),var(--surface-strong)); border-color:var(--border); color:var(--ink)!important; transform:translate(-2px,-2px); box-shadow:5px 5px 0 var(--shadow); }
+.stButton button:focus-visible,[data-testid="stFormSubmitButton"] button:focus-visible { outline:3px solid var(--focus); outline-offset:4px; }
+.stButton button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--accent); border-color:var(--accent); color:white!important; }
+.stButton button[kind="primary"]:hover,[data-testid="stFormSubmitButton"] button[kind="primary"]:hover { background:color-mix(in srgb,var(--accent) 82%,var(--ink)); border-color:var(--accent); color:white!important; }
+.stButton button[kind="primary"] p,[data-testid="stFormSubmitButton"] button[kind="primary"] p { color:white!important; font-size:1rem!important; font-weight:800!important; letter-spacing:.03em; }
 [data-testid="stSidebar"] .stButton button { justify-content:flex-start; background:transparent; border:2px solid transparent; border-radius:0; font-weight:800; box-shadow:none; }
-[data-testid="stSidebar"] .stButton button:hover { background:#cedde8; border-color:var(--ink); transform:none; box-shadow:none; }
-[data-baseweb="input"], [data-baseweb="select"]>div,[data-baseweb="textarea"] { background:#fafcfd!important; border:2px solid var(--ink)!important; border-radius:0!important; color:var(--ink)!important; }
+[data-testid="stSidebar"] .stButton button:hover { background:var(--surface-hover); border-color:var(--border); transform:none; box-shadow:none; }
+[data-baseweb="input"], [data-baseweb="select"]>div,[data-baseweb="textarea"] { background:var(--surface)!important; border:2px solid var(--border)!important; border-radius:0!important; color:var(--ink)!important; }
 [data-testid="stTextInput"] [data-baseweb="base-input"],
 [data-testid="stTextInput"] [data-baseweb="input"]>div,
 [data-testid="stTextInput"] input,
 [data-testid="stNumberInput"] input,
-[data-baseweb="select"] input { background:#fafcfd!important; background-image:none!important; color:#18232f!important; -webkit-text-fill-color:#18232f!important; caret-color:#365b76!important; border-radius:0!important; }
-[data-testid="stTextInput"] input::placeholder { color:#536675!important; -webkit-text-fill-color:#536675!important; opacity:1; }
-[data-testid="stTextInput"] input:autofill { box-shadow:0 0 0 1000px #fafcfd inset!important; }
-[data-testid="stTextInput"] input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px #fafcfd inset!important; -webkit-text-fill-color:#18232f!important; }
-[data-baseweb="input"]:focus-within,[data-baseweb="textarea"]:focus-within { border-color:var(--ink)!important; box-shadow:3px 3px 0 var(--ink)!important; }
-[data-testid="stExpander"] { background:#fafcfd; border:2px solid var(--ink); border-radius:0; overflow:hidden; }
-[data-baseweb="tab-list"] { gap:1.3rem; border-bottom:2px solid var(--ink); padding:0; margin:1.4rem 0 1.1rem; }
-button[data-baseweb="tab"] { color:#526675; border-radius:0; background:none; font-weight:650; padding:.8rem .15rem; transition:color .17s ease; }
+[data-baseweb="select"] input { background:var(--surface)!important; background-image:none!important; color:var(--ink)!important; -webkit-text-fill-color:var(--ink)!important; caret-color:var(--accent)!important; border-radius:0!important; }
+[data-testid="stTextInput"] input::placeholder { color:var(--muted)!important; -webkit-text-fill-color:var(--muted)!important; opacity:1; }
+[data-testid="stTextInput"] input:autofill { box-shadow:0 0 0 1000px var(--surface) inset!important; }
+[data-testid="stTextInput"] input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px var(--surface) inset!important; -webkit-text-fill-color:var(--ink)!important; }
+[data-baseweb="input"]:focus-within,[data-baseweb="textarea"]:focus-within { border-color:var(--accent)!important; box-shadow:3px 3px 0 var(--shadow)!important; }
+[data-testid="stExpander"] { background:var(--surface); border:2px solid var(--border); border-radius:0; overflow:hidden; }
+[data-baseweb="tab-list"] { gap:1.3rem; border-bottom:2px solid var(--border); padding:0; margin:1.4rem 0 1.1rem; }
+button[data-baseweb="tab"] { color:var(--muted); border-radius:0; background:none; font-weight:650; padding:.8rem .15rem; transition:color .17s ease; }
 button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"] { color:var(--ink); }
-[data-baseweb="tab-highlight"] { background:var(--ink); height:4px; }
-[data-testid="stDataFrame"] { border:2px solid var(--ink); border-radius:0; overflow:hidden; }
+[data-baseweb="tab-highlight"] { background:var(--accent); height:4px; }
+[data-testid="stDataFrame"] { border:2px solid var(--border); border-radius:0; overflow:hidden; }
 .stock-hero { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:1.3rem 0 1rem; }
 .stock-kicker { font-size:.69rem; color:var(--muted); font-weight:750; letter-spacing:.09em; text-transform:uppercase; }
 .stock-name { font-size:1.9rem; font-weight:700; letter-spacing:-.04em; color:var(--ink); }
 .stock-company { font-size:.88rem; color:var(--secondary); }
-.signal-pill { color:var(--ink); background:#cddde8; border:2px solid var(--ink); border-radius:0; font-size:.75rem; font-weight:750; padding:8px 12px; white-space:nowrap; }
-.empty-state { background:linear-gradient(135deg,#f8fafb,#e1eaf0); border:2px solid var(--ink); box-shadow:4px 4px 0 var(--ink); border-radius:0; padding:1.3rem 1.5rem; margin:1rem 0 2rem; }
+.signal-pill { color:var(--ink); background:var(--subtle); border:2px solid var(--border); border-radius:0; font-size:.75rem; font-weight:750; padding:8px 12px; white-space:nowrap; }
+.empty-state { background:linear-gradient(135deg,var(--surface),var(--surface-soft)); border:2px solid var(--border); box-shadow:4px 4px 0 var(--shadow); border-radius:0; padding:1.3rem 1.5rem; margin:1rem 0 2rem; }
 .empty-state strong { color:var(--ink); display:block; margin-bottom:.25rem; font-size:.94rem; }
 .empty-state span { color:var(--secondary); font-size:.82rem; }
-[data-testid="stAlert"] { background:#e5edf3!important; border:2px solid var(--ink)!important; border-radius:0; color:var(--ink)!important; }
-[data-testid="stAlert"] svg { color:#354c60!important; }
-[data-testid="stVegaLiteChart"] { box-sizing:border-box; width:100%; min-width:0; padding:0!important; margin:14px 0 24px; background:#f8fafc; border:0; box-shadow:inset 0 0 0 2px var(--ink); }
-[data-baseweb="tag"] { background:#dbe5ed!important; color:#18232f!important; border-radius:0!important; }
-[data-baseweb="tag"] span,[data-baseweb="tag"] svg { color:#18232f!important; }
-[data-baseweb="slider"] [role="slider"] { background:#365b76!important; border-color:#365b76!important; }
-[data-baseweb="slider"] div:has(>[role="slider"]) { background:#365b76!important; }
-[data-baseweb="checkbox"] input:checked+div { background:#365b76!important; border-color:#365b76!important; }
-[data-baseweb="radio"] input:checked+div { background:#365b76!important; border-color:#365b76!important; }
-[data-testid="stWidgetLabel"] p,[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"] { color:#354757!important; }
-[data-baseweb="menu"],[data-baseweb="popover"] { background:#f5f7f9!important; color:#18232f!important; }
-[data-baseweb="base-input"], [data-baseweb="textarea"] textarea { background:#fafcfd!important; color:#18232f!important; caret-color:#365b76!important; }
-[data-baseweb="select"] [role="combobox"], [role="listbox"], [role="option"] { background:#fafcfd!important; color:#18232f!important; }
-[role="option"]:hover,[role="option"][aria-selected="true"] { background:#dbe5ed!important; color:#18232f!important; }
-[role="tooltip"], #vg-tooltip-element { background:#f5f7f9!important; color:#18232f!important; border:1px solid #93a4b3!important; }
-[data-testid="stMetricDelta"] { color:#354757!important; background:#e6ecf1!important; }
+[data-testid="stAlert"] { background:var(--subtle)!important; border:2px solid var(--border)!important; border-radius:0; color:var(--ink)!important; }
+[data-testid="stAlert"] svg { color:var(--secondary)!important; }
+[data-testid="stVegaLiteChart"] { box-sizing:border-box; width:100%; min-width:0; padding:0!important; margin:14px 0 24px; background:var(--surface); border:0; box-shadow:inset 0 0 0 2px var(--border); }
+[data-baseweb="tag"] { background:var(--subtle)!important; color:var(--ink)!important; border-radius:0!important; }
+[data-baseweb="tag"] span,[data-baseweb="tag"] svg { color:var(--ink)!important; }
+[data-baseweb="slider"] [role="slider"] { background:var(--accent)!important; border-color:var(--accent)!important; }
+[data-baseweb="slider"] div:has(>[role="slider"]) { background:var(--accent)!important; }
+[data-baseweb="checkbox"] input:checked+div { background:var(--accent)!important; border-color:var(--accent)!important; }
+[data-baseweb="radio"] input:checked+div { background:var(--accent)!important; border-color:var(--accent)!important; }
+[data-testid="stWidgetLabel"] p,[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"] { color:var(--secondary)!important; }
+[data-baseweb="menu"],[data-baseweb="popover"] { background:var(--surface)!important; color:var(--ink)!important; }
+[data-baseweb="base-input"], [data-baseweb="textarea"] textarea { background:var(--surface)!important; color:var(--ink)!important; caret-color:var(--accent)!important; }
+[data-baseweb="select"] [role="combobox"], [role="listbox"], [role="option"] { background:var(--surface)!important; color:var(--ink)!important; }
+[role="option"]:hover,[role="option"][aria-selected="true"] { background:var(--surface-hover)!important; color:var(--ink)!important; }
+[role="tooltip"], #vg-tooltip-element { background:var(--surface)!important; color:var(--ink)!important; border:1px solid var(--border)!important; }
+[data-testid="stMetricDelta"] { color:var(--secondary)!important; background:var(--subtle)!important; }
 [data-testid="stMetricDelta"] svg { fill:currentColor!important; }
-[data-testid="stAlert"] p,[data-testid="stAlert"] strong { color:#18232f!important; }
-[data-testid="stMarkdownContainer"] a { color:#365b76!important; }
-[data-testid="stMarkdownContainer"] code { color:#354757!important; background:#e6ecf1!important; }
-::selection { background:#c6d5e2; color:#18232f; }
+[data-testid="stAlert"] p,[data-testid="stAlert"] strong { color:var(--ink)!important; }
+[data-testid="stMarkdownContainer"] a { color:var(--accent)!important; }
+[data-testid="stMarkdownContainer"] code { color:var(--secondary)!important; background:var(--subtle)!important; }
+::selection { background:color-mix(in srgb,var(--accent) 30%,var(--surface)); color:var(--ink); }
 hr { border-color:var(--border); }
-@media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
+@media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--shadow); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
 </style>
 <div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a><a href="#rate-my-portfolio">Rate my portfolio</a></nav></div>
@@ -397,14 +384,13 @@ hr { border-color:var(--border); }
 
 
 def render_price_chart(frame):
-    """Explicit cool chart styling, independent of Streamlit's active theme."""
+    """Render with Streamlit's active light/dark chart theme."""
     import altair as alt
 
     data = frame.rename_axis("Date").reset_index().melt(
         id_vars="Date", var_name="Series", value_name="Value"
     )
     series = list(frame.columns)
-    palette = ["#365b76", "#66849a", "#92aabb", "#233c50"]
     chart = (
         alt.Chart(data)
         .mark_line(strokeWidth=2, clip=True)
@@ -412,20 +398,18 @@ def render_price_chart(frame):
             x=alt.X("Date:T", title=None, axis=alt.Axis(labelPadding=10)),
             y=alt.Y("Value:Q", title="Price (USD)", scale=alt.Scale(zero=False),
                     axis=alt.Axis(labelPadding=8, titlePadding=16)),
-            color=alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette[:len(series)]),
-                            legend=alt.Legend(title=None, orient="bottom", padding=12) if len(series) > 1 else None),
+            color=alt.Color(
+                "Series:N",
+                legend=alt.Legend(title=None, orient="bottom", padding=12) if len(series) > 1 else None,
+            ),
             tooltip=[alt.Tooltip("Date:T", title="Date"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
         .properties(height=380, padding={"left":16, "right":16, "top":24, "bottom":16},
                     autosize=alt.AutoSizeParams(type="fit", contains="padding", resize=True))
-        .configure(background="#f8fafc", font="Arial")
         .configure_view(strokeOpacity=0)
-        .configure_axis(labelColor="#354757", titleColor="#18232f", gridColor="#dbe3ea",
-                        domainColor="#93a4b3", tickColor="#93a4b3")
-        .configure_legend(labelColor="#354757", titleColor="#18232f")
         .interactive()
     )
-    st.altair_chart(chart, use_container_width=True, theme=None)
+    st.altair_chart(chart, use_container_width=True, theme="streamlit")
 
 
 STRONG_BUY_THRESHOLD = 80
