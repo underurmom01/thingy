@@ -16,6 +16,36 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
+# Keep the app's palette authoritative even when an older pink config is deployed.
+# Streamlit serializes these server theme options for native widgets and tables.
+from streamlit import config as _theme_config
+
+_cool_theme = {
+    "primaryColor": "#365B76", "backgroundColor": "#F5F7F9",
+    "secondaryBackgroundColor": "#E6ECF1", "textColor": "#18232F",
+    "borderColor": "#93A4B3", "dataframeBorderColor": "#93A4B3",
+    "dataframeHeaderBackgroundColor": "#DBE5ED", "codeBackgroundColor": "#E6ECF1",
+    "linkColor": "#365B76", "codeTextColor": "#354757",
+    "chartCategoricalColors": ["#365B76", "#66849A", "#92AABB", "#233C50"],
+    "chartSequentialColors": ["#EDF2F5", "#CBD9E4", "#92AABB", "#66849A", "#365B76", "#233C50"],
+    "chartDivergingColors": ["#233C50", "#66849A", "#EDF2F5", "#92AABB", "#354757"],
+}
+for _hue in ("red", "orange", "yellow", "blue", "green", "violet", "gray"):
+    _cool_theme.update({_hue + "Color": "#536675", _hue + "BackgroundColor": "#E6ECF1",
+                        _hue + "TextColor": "#354757"})
+_theme_options = _theme_config.get_config_options()
+_theme_changed = False
+for _scope in ("theme", "theme.sidebar", "theme.light", "theme.light.sidebar", "theme.dark", "theme.dark.sidebar"):
+    for _name, _value in _cool_theme.items():
+        if _scope + "." + _name in _theme_options:
+            _theme_changed |= _theme_config.get_option(_scope + "." + _name) != _value
+            _theme_config.set_option(_scope + "." + _name, _value)
+_theme_changed |= _theme_config.get_option("theme.base") != "light"
+_theme_config.set_option("theme.base", "light")
+if _theme_changed:
+    # Theme metadata is sent before the script starts; resend it after an override.
+    st.rerun()
+
 st.set_page_config(page_title="Buyntiq", page_icon="◼", layout="wide")
 
 
@@ -347,6 +377,15 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 [data-baseweb="radio"] input:checked+div { background:#365b76!important; border-color:#365b76!important; }
 [data-testid="stWidgetLabel"] p,[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"] { color:#354757!important; }
 [data-baseweb="menu"],[data-baseweb="popover"] { background:#f5f7f9!important; color:#18232f!important; }
+[data-baseweb="base-input"], [data-baseweb="textarea"] textarea { background:#fafcfd!important; color:#18232f!important; caret-color:#365b76!important; }
+[data-baseweb="select"] [role="combobox"], [role="listbox"], [role="option"] { background:#fafcfd!important; color:#18232f!important; }
+[role="option"]:hover,[role="option"][aria-selected="true"] { background:#dbe5ed!important; color:#18232f!important; }
+[role="tooltip"], #vg-tooltip-element { background:#f5f7f9!important; color:#18232f!important; border:1px solid #93a4b3!important; }
+[data-testid="stMetricDelta"] { color:#354757!important; background:#e6ecf1!important; }
+[data-testid="stMetricDelta"] svg { fill:currentColor!important; }
+[data-testid="stAlert"] p,[data-testid="stAlert"] strong { color:#18232f!important; }
+[data-testid="stMarkdownContainer"] a { color:#365b76!important; }
+[data-testid="stMarkdownContainer"] code { color:#354757!important; background:#e6ecf1!important; }
 ::selection { background:#c6d5e2; color:#18232f; }
 hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
