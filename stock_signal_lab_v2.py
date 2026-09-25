@@ -11,7 +11,7 @@ import time
 import shutil
 
 
-st.set_page_config(page_title="Stock Signal Lab v12", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Stock Signal Lab v14", page_icon="📈", layout="wide")
 
 
 
@@ -273,315 +273,38 @@ def get_yfinance():
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
 # =========================================================
 
-st.markdown(
-    """
-    <style>
-        :root {
-            --ink: #111111;
-            --muted: #6f6f6f;
-            --surface: rgba(255,255,255,0.96);
-            --line: rgba(0,0,0,0.14);
-            --blue: #111111;
-            --blue-hover: #2b2b2b;
-            --shadow: 0 4px 14px rgba(0,0,0,0.05);
-            --radius: 8px;
-        }
-
-        html, body, [class*="css"] {
-            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
-                         "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-        }
-
-        .stApp {
-            background:
-                
-                
-                #f3f3f3;
-            color: var(--ink);
-        }
-
-        .block-container {
-            max-width: 1240px;
-            padding-top: 2.4rem;
-            padding-bottom: 5rem;
-        }
-
-        .app-hero {
-            padding: 2rem 2.1rem 1.9rem;
-            margin: 0 0 1.6rem;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.98);
-            border: 1px solid rgba(0,0,0,0.14);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.05);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-        }
-
-        .app-eyebrow {
-            display: inline-flex;
-            align-items: center;
-            gap: .45rem;
-            margin-bottom: .8rem;
-            padding: .35rem .65rem;
-            border-radius: 5px;
-            background: #e9e9e9;
-            color: #111111;
-            font-size: .72rem;
-            font-weight: 750;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-        }
-
-        .app-hero h1 {
-            margin: 0;
-            color: var(--ink);
-            font-size: clamp(2.1rem, 4.5vw, 3.8rem);
-            line-height: .98;
-            letter-spacing: -0.035em;
-            font-weight: 760;
-        }
-
-        .app-hero h1 span {
-            color: #707070;
-            font-weight: 600;
-        }
-
-        .app-hero p {
-            max-width: 760px;
-            margin: 1rem 0 0;
-            color: var(--muted);
-            font-size: 1.06rem;
-            line-height: 1.55;
-        }
-
-        .stock-hero {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            gap: 1.25rem;
-            padding: 1.55rem 1.7rem;
-            margin: 1.55rem 0 1rem;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.9);
-            border: 1px solid rgba(0,0,0,0.14);
-            box-shadow: var(--shadow);
-        }
-
-        .stock-kicker {
-            margin-bottom: .3rem;
-            color: #707070;
-            font-size: .72rem;
-            font-weight: 750;
-            letter-spacing: .08em;
-            text-transform: uppercase;
-        }
-
-        .stock-name {
-            margin: 0;
-            color: var(--ink);
-            font-size: 2rem;
-            line-height: 1.08;
-            letter-spacing: -0.04em;
-            font-weight: 730;
-        }
-
-        .stock-company {
-            margin-top: .34rem;
-            color: var(--muted);
-            font-size: .94rem;
-        }
-
-        .signal-pill {
-            flex: 0 0 auto;
-            padding: .55rem .9rem;
-            border-radius: 5px;
-            font-size: .8rem;
-            font-weight: 760;
-            letter-spacing: .035em;
-            border: 1px solid transparent;
-        }
-
-        .signal-strong-buy,
-        .signal-buy {
-            color: #111111;
-            background: #e7e7e7;
-            border-color: #bdbdbd;
-        }
-
-        .signal-hold {
-            color: #111111;
-            background: #d9d9d9;
-            border-color: #ababab;
-        }
-
-        .signal-sell,
-        .signal-strong-sell {
-            color: #ffffff;
-            background: #2f2f2f;
-            border-color: #2f2f2f;
-        }
-
-        h1, h2, h3, h4 {
-            color: var(--ink) !important;
-            letter-spacing: -0.035em;
-        }
-
-        h2 {
-            margin-top: 2.15rem !important;
-            margin-bottom: .85rem !important;
-            font-size: 1.48rem !important;
-            font-weight: 710 !important;
-        }
-
-        h3 {
-            font-size: 1.12rem !important;
-            font-weight: 680 !important;
-        }
-
-        p, label, .stCaption {
-            color: var(--muted);
-        }
-
-        [data-testid="stMetric"] {
-            min-height: 108px;
-            padding: 1rem 1.05rem;
-            border-radius: var(--radius);
-            background: var(--surface);
-            border: 1px solid rgba(0,0,0,0.14);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.035);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-        }
-
-        [data-testid="stMetricLabel"] {
-            color: #75757a !important;
-            font-size: .79rem !important;
-            font-weight: 620 !important;
-        }
-
-        [data-testid="stMetricValue"] {
-            color: var(--ink) !important;
-            font-size: 1.72rem !important;
-            font-weight: 710 !important;
-            letter-spacing: -0.04em;
-        }
-
-        [data-testid="stTextInput"] input {
-            min-height: 48px;
-            border-radius: 6px !important;
-            border: 1px solid rgba(0,0,0,0.11) !important;
-            background: rgba(255,255,255,0.93) !important;
-            color: var(--ink) !important;
-        }
-
-        [data-testid="stTextInput"] input:focus {
-            border-color: rgba(0,0,0,0.55) !important;
-            box-shadow: 0 0 0 3px rgba(0,0,0,0.08) !important;
-        }
-
-        .stButton > button {
-            min-height: 43px;
-            border-radius: 6px !important;
-            border: 1px solid rgba(0,0,0,0.08) !important;
-            background: rgba(255,255,255,0.88) !important;
-            color: #2c2c2e !important;
-            font-weight: 640 !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.025);
-            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-        }
-
-        .stButton > button:hover {
-            transform: translateY(-1px);
-            border-color: rgba(0,0,0,0.32) !important;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-        }
-
-        .stButton > button[kind="primary"] {
-            background: var(--blue) !important;
-            color: white !important;
-            border-color: var(--blue) !important;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.10);
-        }
-
-        .stButton > button[kind="primary"]:hover {
-            background: var(--blue-hover) !important;
-            border-color: var(--blue-hover) !important;
-        }
-
-        [data-testid="stSidebar"] {
-            background: #ededed;
-            border-right: 1px solid rgba(0,0,0,0.065);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-        }
-
-        [data-testid="stSidebar"] .stButton > button {
-            justify-content: flex-start;
-            padding-left: .95rem;
-        }
-
-        [data-testid="stAlert"] {
-            border-radius: 6px !important;
-            border: 1px solid rgba(0,0,0,0.07) !important;
-            box-shadow: none !important;
-        }
-
-        [data-testid="stVegaLiteChart"],
-        [data-testid="stArrowVegaLiteChart"] {
-            padding: .85rem;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.86);
-            border: 1px solid rgba(0,0,0,0.14);
-            box-shadow: 0 5px 22px rgba(0,0,0,0.035);
-        }
-
-        hr {
-            margin: 2rem 0 !important;
-            border: none !important;
-            border-top: 1px solid rgba(0,0,0,0.075) !important;
-        }
-
-        a {
-            color: #222222;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-
-        @media (max-width: 760px) {
-            .block-container {
-                padding-top: 1rem;
-            }
-
-            .app-hero {
-                padding: 1.65rem 1.35rem;
-                border-radius: 8px;
-            }
-
-            .stock-hero {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-        }
-    </style>
-
-    <div class="app-hero">
-        <div class="app-eyebrow">Signal research · v12</div>
-        <h1>Stock Signal Lab <span>v12</span></h1>
-        <p>
-            Technicals, fundamentals, earnings context, market-reaction signals,
-            and historical machine-learning forecasts — presented in one clean view.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+:root {color-scheme: light; --ink:#172b36; --muted:#66808a;}
+.stApp {background: radial-gradient(ellipse at 10% 5%, #c9e8e9 0, transparent 45%),
+ radial-gradient(ellipse at 90% 25%, #dddafa 0, transparent 45%),
+ radial-gradient(ellipse at 55% 95%, #e1efda 0, transparent 50%), #f5f8fa;
+ background-attachment:fixed; color:var(--ink);}
+[data-testid="stHeader"] {background:transparent;}
+[data-testid="stSidebar"] {background:rgba(244,249,251,.88); border-right:1px solid #dbe7eb;}
+.block-container {max-width:1200px; padding-top:2.5rem; padding-bottom:4rem;}
+h1,h2,h3 {color:#172b36 !important; letter-spacing:-.04em; font-weight:600 !important;}
+p,label,[data-testid="stMarkdownContainer"] {color:#29434d;}
+.app-hero {padding:1.2rem 0 1.8rem;}
+.app-eyebrow,.stock-kicker {font-size:.7rem;letter-spacing:.19em;text-transform:uppercase;color:#66808a;}
+.app-hero h1 {font-size:clamp(2rem,5vw,3.4rem);margin:.5rem 0;}
+.app-hero p {color:#66808a;max-width:600px;}
+[data-testid="stMetric"] {background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.9);
+ border-radius:16px;padding:1.1rem;box-shadow:0 5px 24px #314c5c06;}
+[data-testid="stMetricValue"] {color:#172b36;font-size:1.75rem;letter-spacing:-.04em;}
+[data-testid="stExpander"] {background:rgba(255,255,255,.5);border:1px solid #dce7eb;border-radius:16px;}
+.stButton button,.stDownloadButton button {border-radius:10px;border:1px solid #d0dfe4;transition:.2s;}
+.stButton button[kind="primary"] {background:#193f49;color:white;border:0;}
+.stButton button:hover {border-color:#76a3ad;transform:translateY(-1px);}
+.stock-hero {display:flex;justify-content:space-between;align-items:center;padding:1rem 0 1.5rem;}
+.stock-name {font-size:2rem;font-weight:650;letter-spacing:-.05em;}
+.stock-company {color:#66808a;}
+.signal-pill {padding:.45rem .8rem;border-radius:100px;background:#deece7;font-size:.8rem;}
+hr {border-color:#dce7eb;}
+</style>
+<div class="app-hero"><div class="app-eyebrow">Signal / research workspace</div>
+<h1>A clearer market view.</h1><p>Your watchlist, market signals, and portfolio research. One quiet workspace.</p></div>
+""", unsafe_allow_html=True)
 
 
 STRONG_BUY_THRESHOLD = 80
@@ -888,6 +611,7 @@ def _fetch_single_history(ticker):
                     period="10y",
                     interval="1d",
                     auto_adjust=True,
+                    timeout=12,
                 )
             )
 
@@ -1997,7 +1721,7 @@ def label_from_score(score):
 
 def build_feature_frame(data):
     close = data["Close"].astype(float)
-    volume = data["Volume"].astype(float)
+    volume = pd.to_numeric(data.get("Volume", pd.Series(np.nan, index=data.index)), errors="coerce")
     ma20 = close.rolling(20).mean()
     ma50 = close.rolling(50).mean()
     ma200 = close.rolling(200).mean()
@@ -2011,7 +1735,7 @@ def build_feature_frame(data):
     features["distance_ma50"] = close / ma50 - 1
     features["distance_ma200"] = close / ma200 - 1
     features["volatility_21d"] = close.pct_change().rolling(21).std() * np.sqrt(252)
-    features["volume_change_21d"] = volume / volume.rolling(21).mean() - 1
+    features["volume_change_21d"] = (volume / volume.rolling(21).mean().replace(0, np.nan) - 1).replace([np.inf, -np.inf], np.nan).fillna(0.0)
     return features
 
 
@@ -2019,10 +1743,10 @@ def build_training_dataset(data, horizon_days):
     features = build_feature_frame(data)
     close = data["Close"].astype(float)
     features["target"] = close.shift(-horizon_days) / close - 1
-    return features.dropna()
+    return features.replace([np.inf, -np.inf], np.nan).dropna()
 
 
-def train_forecast_model(dataset, fast_mode=False):
+def train_forecast_model(dataset, fast_mode=False, horizon_days=63):
     if len(dataset) < 300:
         return None
 
@@ -2034,15 +1758,15 @@ def train_forecast_model(dataset, fast_mode=False):
     X = dataset[FEATURE_COLUMNS]
     y = dataset["target"]
     split = int(len(dataset) * 0.80)
-    X_train, X_test = X.iloc[:split], X.iloc[split:]
-    y_train, y_test = y.iloc[:split], y.iloc[split:]
+    X_train, X_test = X.iloc[:max(0, split - horizon_days)], X.iloc[split:]
+    y_train, y_test = y.iloc[:max(0, split - horizon_days)], y.iloc[split:]
 
     if len(X_train) < 200 or len(X_test) < 30:
         return None
 
     model = RandomForestRegressor(
         n_estimators=(
-            80
+            32
             if fast_mode
             else 150
         ),
@@ -2053,7 +1777,7 @@ def train_forecast_model(dataset, fast_mode=False):
         ),
         min_samples_leaf=5,
         random_state=42,
-        n_jobs=-1,
+        n_jobs=(2 if fast_mode else -1),
     )
     model.fit(X_train, y_train)
     pred = model.predict(X_test)
@@ -2062,13 +1786,16 @@ def train_forecast_model(dataset, fast_mode=False):
     direction_acc = float(np.mean(np.sign(y_test.to_numpy()) == np.sign(pred)))
     baseline_acc = float(np.mean(y_test.to_numpy() > 0))
 
+    # Validate with a horizon-sized gap, then refit on all available labels.
+    # Fast mode uses fewer trees; cached forecasts avoid repeated training.
     model.fit(X, y)
     return model, mae, direction_acc, baseline_acc
 
 
+@st.cache_data(ttl=21600, show_spinner=False, max_entries=1024)
 def predict_horizon(data, horizon_days, fast_mode=False):
     dataset = build_training_dataset(data, horizon_days)
-    trained = train_forecast_model(dataset, fast_mode=fast_mode)
+    trained = train_forecast_model(dataset, fast_mode=fast_mode, horizon_days=horizon_days)
     if trained is None:
         return None
 
@@ -2759,15 +2486,15 @@ def _extract_close_series(
 def fast_screen_sector(
     sector_focus,
     finalist_limit=150,
+    scan_limit=600,
 ):
     """
     Stage 1 still scans the broad selected U.S. universe, but the complete
     quick-score table is now also saved locally. Rebuilding a portfolio
     shortly afterward can therefore skip the full-market price scan.
     """
-    disk_cached = _read_screen_cache(
-        sector_focus
-    )
+    cache_key = "{}__{}".format(sector_focus, scan_limit)
+    disk_cached = _read_screen_cache(cache_key)
 
     if (
         disk_cached is not None
@@ -2792,6 +2519,28 @@ def fast_screen_sector(
 
     if universe.empty:
         return pd.DataFrame()
+
+    if scan_limit and len(universe) > scan_limit:
+        # Sample evenly within each sector. The default quick scan is bounded;
+        # users can explicitly request the complete market scan.
+        grouped = []
+        for _, group in universe.groupby("Sector", dropna=False):
+            ordered = group.sort_values("Symbol").reset_index(drop=True)
+            positions = np.linspace(
+                0, len(ordered) - 1, min(len(ordered), scan_limit), dtype=int
+            )
+            grouped.append(ordered.iloc[positions].reset_index(drop=True))
+        sampled = []
+        cursor = 0
+        while len(sampled) < scan_limit and grouped:
+            for group in grouped:
+                if len(sampled) >= scan_limit:
+                    break
+                if cursor < len(group):
+                    sampled.append(group.iloc[cursor])
+            cursor += 1
+            grouped = [g for g in grouped if cursor < len(g)]
+        universe = pd.DataFrame(sampled).reset_index(drop=True)
 
     tickers = (
         universe["Symbol"]
@@ -2844,7 +2593,8 @@ def fast_screen_sector(
                 auto_adjust=True,
                 progress=False,
                 group_by="ticker",
-                threads=True,
+                threads=8,
+                timeout=12,
             )
         except Exception:
             continue
@@ -2905,7 +2655,7 @@ def fast_screen_sector(
     )
 
     _write_screen_cache(
-        sector_focus,
+        cache_key,
         screened,
     )
 
@@ -2939,7 +2689,7 @@ def _extract_batch_history(
     )
 
 
-def prefetch_price_histories(tickers):
+def prefetch_price_histories(tickers, min_rows=0):
     """
     Batch-download 10-year history for the finalist pool and place each
     ticker into the local cache.
@@ -2960,9 +2710,8 @@ def prefetch_price_histories(tickers):
     missing = []
 
     for ticker in tickers:
-        if _read_price_cache(
-            ticker
-        ) is None:
+        cached = _read_price_cache(ticker)
+        if cached is None or len(cached) < min_rows:
             missing.append(ticker)
 
     if not missing:
@@ -2997,7 +2746,8 @@ def prefetch_price_histories(tickers):
                 auto_adjust=True,
                 progress=False,
                 group_by="ticker",
-                threads=True,
+                threads=8,
+                timeout=12,
             )
 
         except Exception:
@@ -3025,10 +2775,11 @@ def prefetch_price_histories(tickers):
                     ticker
                 )
 
-    # Retry only the handful that failed the batch request.
+    # Bound retries: Yahoo can reject an entire batch and individual retries
+    # for every symbol would otherwise make the page appear frozen.
     final_failed = []
 
-    for ticker in unresolved:
+    for ticker in unresolved[:4]:
         frame = download_data(
             ticker,
             force_refresh=True,
@@ -3038,6 +2789,8 @@ def prefetch_price_histories(tickers):
             final_failed.append(
                 ticker
             )
+
+    final_failed.extend(unresolved[4:])
 
     return {
         "requested": len(tickers),
@@ -3233,6 +2986,39 @@ def portfolio_snapshot(
         "analysis_depth":
             "Full",
     }
+
+
+def add_portfolio_ml(snapshot, technical):
+    """Train a fast forecast only for a selected holding."""
+    if technical is None:
+        return snapshot
+    try:
+        ml = predict_horizon(
+            technical["data"], HORIZONS["3 Months"], fast_mode=True
+        )
+    except ImportError:
+        snapshot["ml_status"] = "Install scikit-learn: python -m pip install scikit-learn"
+        return snapshot
+    except Exception as exc:
+        snapshot["ml_status"] = "{}: {}".format(type(exc).__name__, str(exc)[:160])
+        return snapshot
+    if ml is None:
+        rows = len(build_training_dataset(technical["data"], HORIZONS["3 Months"]))
+        snapshot["ml_status"] = "Insufficient usable history: {} training rows (need 330+)".format(rows)
+        return snapshot
+    score, ml_score, reliability, note = ml_adjusted_hybrid_score(
+        snapshot["technical_score"], snapshot.get("fundamental_score"),
+        snapshot.get("event_score"), snapshot.get("reaction_score"), ml,
+    )
+    snapshot.update(
+        overall_score=score, signal=label_from_score(score), ml_score=ml_score,
+        ml_reliability=reliability, ml_guardrail_note=note,
+        predicted_return_3m=ml["predicted_return"],
+        directional_accuracy=ml["directional_accuracy"],
+        baseline_accuracy=ml["baseline_accuracy"], mae=ml["mae"],
+        ml_status="Random Forest (3M)", analysis_depth="Technical + ML",
+    )
+    return snapshot
 
 
 def technical_fallback_snapshot(
@@ -3565,6 +3351,7 @@ def build_ai_portfolio(
             )
         )
 
+    correlations = pd.DataFrame({item["ticker"]: item["daily_returns"] for item in usable}).corr(min_periods=40).fillna(0.0).clip(lower=0.0)
     selected = []
     remaining = list(usable)
 
@@ -3632,10 +3419,7 @@ def build_ai_portfolio(
             ):
                 continue
 
-            corr = max_positive_correlation(
-                candidate,
-                selected,
-            )
+            corr = max((float(correlations.at[candidate["ticker"], item["ticker"]]) for item in selected), default=0.0)
 
             sector_penalty = 0.0
 
@@ -3808,23 +3592,55 @@ def build_ai_portfolio(
 
 
 
+WATCHLIST_PATH = LOCAL_CACHE_ROOT.parent / "stock_signal_watchlist.json"
+
+
+def parse_watchlist(text):
+    symbols = []
+    for token in re.split(r"[,;\s]+", text.strip()):
+        symbol = normalize_yahoo_symbol(token)
+        if symbol and re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,11}", symbol) and symbol not in symbols:
+            symbols.append(symbol)
+    return symbols[:40]
+
+
+if "watchlist" not in st.session_state:
+    try:
+        saved = json.loads(WATCHLIST_PATH.read_text(encoding="utf-8"))
+        st.session_state["watchlist"] = parse_watchlist(" ".join(saved))
+    except (OSError, ValueError, TypeError):
+        st.session_state["watchlist"] = [symbol for symbol, _ in FEATURED_STOCKS]
+
 with st.sidebar:
-    st.markdown("### Featured Picks")
-    st.caption("Quick-launch a stock from your watchlist.")
-    for symbol, company in FEATURED_STOCKS:
-        st.button(
-            "{} — {}".format(symbol, company),
-            key="featured_" + symbol,
-            on_click=choose_ticker,
-            args=(symbol,),
-            use_container_width=True,
-        )
+    st.markdown("### Your watchlist")
+    st.caption("Choose a symbol to open its research.")
+    for symbol in st.session_state["watchlist"]:
+        st.button(symbol, key="watch_" + symbol, on_click=choose_ticker,
+                  args=(symbol,), use_container_width=True)
+    if not st.session_state["watchlist"]:
+        st.caption("Add your first symbol below.")
+    with st.expander("Edit watchlist"):
+        with st.form("watchlist_editor"):
+            watchlist_text = st.text_area(
+                "Symbols", value=", ".join(st.session_state["watchlist"]),
+                help="Separate symbols with commas. Remove a symbol to delete it. Up to 40 symbols.",
+            )
+            if st.form_submit_button("Save watchlist", use_container_width=True):
+                st.session_state["watchlist"] = parse_watchlist(watchlist_text)
+                try:
+                    temporary = WATCHLIST_PATH.with_suffix(".tmp")
+                    temporary.write_text(json.dumps(st.session_state["watchlist"]), encoding="utf-8")
+                    os.replace(temporary, WATCHLIST_PATH)
+                except OSError:
+                    st.warning("Saved for this session; could not save to disk.")
+                st.rerun()
     st.divider()
-    if st.button("🔄 Refresh cached data", use_container_width=True):
-        st.cache_data.clear()
-        clear_local_disk_cache()
-        st.success("In-memory and local disk caches cleared.")
-    st.caption("Featured picks are a static watchlist, not guaranteed winners.")
+    with st.expander("Data settings"):
+        if st.button("Refresh market data", use_container_width=True):
+            st.cache_data.clear()
+            clear_local_disk_cache()
+            st.success("Market caches cleared.")
+    st.caption("Signal Lab · research workspace")
 
 
 ticker = st.text_input(
@@ -4056,8 +3872,7 @@ if should_analyze:
 st.divider()
 st.subheader("AI Portfolio Builder")
 st.caption(
-    "All-sector mode starts from the broad U.S.-listed stock market. "
-    "v12 builds a complete price-based candidate pool first, then upgrades the strongest names with slower fundamentals/news/ML so temporary API failures cannot shrink the portfolio."
+    "The broad market screen is cached. Portfolio construction limits history requests and trains ML only for selected holdings."
 )
 
 st.caption(
@@ -4124,11 +3939,14 @@ with st.expander(
         key="portfolio_budget",
     )
 
+    full_market_scan = st.checkbox(
+        "Scan the entire market (much slower)", value=False,
+        help="Quick mode samples across sectors; a full scan can take several minutes on the first run.",
+    )
+
     if holdings_count > 25:
         st.caption(
-            "Large portfolios are supported, but deep-analysis time rises with "
-            "the number of holdings because each finalist gets fundamentals, "
-            "news, overreaction analysis, and a Random Forest forecast."
+            "Large portfolios take longer: each selected holding receives a Random Forest forecast."
         )
 
     build_portfolio_clicked = st.button(
@@ -4200,26 +4018,20 @@ with st.expander(
             )
 
         with st.spinner(
-            "Stage 1/2 — scanning every stock in the selected U.S. universe..."
+            "Screening stocks (first scan may take a few minutes; later scans use cache)..."
         ):
             # Stage 1 candidate pool can be very broad because this stage is
             # only price-based. It is deliberately much larger than the later
             # fundamentals/news/ML pool.
             finalist_limit = min(
                 selected_universe_size,
-                max(
-                    150,
-                    holdings_count,
-                    min(
-                        500,
-                        holdings_count * 5,
-                    ),
-                ),
+                max(40, holdings_count + min(30, holdings_count)),
             )
 
             finalists = fast_screen_sector(
                 sector_focus,
                 finalist_limit=finalist_limit,
+                scan_limit=(None if full_market_scan else max(600, holdings_count * 2)),
             )
 
         if finalists.empty:
@@ -4229,7 +4041,7 @@ with st.expander(
 
         else:
             st.caption(
-                "Full-market screen selected {} deep-analysis finalists from {}.".format(
+                "Price screen selected {} candidates from {}.".format(
                     len(finalists),
                     sector_focus,
                 )
@@ -4257,13 +4069,15 @@ with st.expander(
             )
 
             with st.spinner(
-                "Stage 2A/2 — batch-loading 10-year histories and using the local cache..."
+                "Loading candidate history from the local cache or Yahoo..."
             ):
                 prefetch_stats = (
                     prefetch_price_histories(
                         candidate_tickers
                     )
                 )
+
+            unavailable_prices = set(prefetch_stats["failed"])
 
             st.caption(
                 "10Y history · {} already cached · {} newly batch-loaded · {} unavailable.".format(
@@ -4294,6 +4108,10 @@ with st.expander(
                 symbol = row[
                     "Ticker"
                 ]
+
+                if symbol in unavailable_prices:
+                    technical_failures.append(symbol)
+                    continue
 
                 data = download_data(
                     symbol
@@ -4408,11 +4226,7 @@ with st.expander(
                 len(
                     technical_table
                 ),
-                max(
-                    100,
-                    effective_holdings_count
-                    * 4,
-                ),
+                effective_holdings_count + min(25, effective_holdings_count),
             )
 
             selection_pool = (
@@ -4456,162 +4270,51 @@ with st.expander(
                         symbol
                     ] = fallback
 
-            # -------------------------------------------------
-            # Stage 2B: upgrade the strongest subset to FULL analysis.
-            #
-            # Small portfolios: enough fully analyzed names for choice.
-            # Large portfolios: cap expensive work so the app can finish.
-            # Any stock not upgraded remains a valid technical fallback.
-            # -------------------------------------------------
-            full_analysis_limit = min(
-                len(
-                    selection_pool
-                ),
-                max(
-                    24,
-                    min(
-                        80,
-                        effective_holdings_count
-                        * 2,
-                    ),
-                ),
-            )
-
-            deep_finalists = (
-                selection_pool
-                .head(
-                    full_analysis_limit
-                )
-                .reset_index(
-                    drop=True
-                )
-            )
-
-            st.caption(
-                "{} valid price candidates → {} full fundamentals/news/ML upgrades → complete portfolio fallback pool of {}.".format(
-                    len(
-                        technical_table
-                    ),
-                    len(
-                        deep_finalists
-                    ),
-                    len(
-                        snapshot_by_ticker
-                    ),
-                )
-            )
-
-            with st.expander(
-                "See full-analysis finalists",
-                expanded=False,
-            ):
-                st.dataframe(
-                    deep_finalists,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-
-            failures = []
-
-            progress = st.progress(0)
-            status = st.empty()
-
-            total = len(
-                deep_finalists
-            )
-
-            for index, row in deep_finalists.iterrows():
-                symbol = row[
-                    "Ticker"
-                ]
-
-                status.caption(
-                    "Stage 2B/2 — upgrading {} with fundamentals, news & ML ({}/{})...".format(
-                        symbol,
-                        index + 1,
-                        total,
-                    )
-                )
-
-                try:
-                    snapshot = (
-                        portfolio_snapshot(
-                            symbol,
-                            company_fallback=
-                                row.get(
-                                    "Company",
-                                    symbol,
-                                ),
-                            sector_fallback=
-                                row.get(
-                                    "Sector",
-                                    "Unknown",
-                                ),
-                            fast_ml=True,
-                        )
-                    )
-                except Exception:
-                    snapshot = None
-
-                if snapshot is None:
-                    failures.append(
-                        symbol
-                    )
-                    # IMPORTANT: keep the already-created technical fallback.
-                else:
-                    snapshot_by_ticker[
-                        symbol
-                    ] = snapshot
-
-                progress.progress(
-                    (index + 1)
-                    / max(
-                        total,
-                        1,
-                    )
-                )
-
-            status.empty()
-            progress.empty()
-
-            # Preserve shortlist order while using upgraded snapshots where
-            # available.
-            snapshots = []
-
-            for _, row in selection_pool.iterrows():
-                symbol = row[
-                    "Ticker"
-                ]
-
-                item = (
-                    snapshot_by_ticker
-                    .get(symbol)
-                )
-
-                if item is not None:
-                    snapshots.append(
-                        item
-                    )
-
-            diversify_sectors = (
-                sector_focus
-                == "All US-listed stocks (all sectors)"
-            )
-
-            # This should normally equal the user's requested number now.
-            holdings_count = min(
-                effective_holdings_count,
-                len(
-                    snapshots
-                ),
-            )
-
+            # Select first using technical data. Expensive analysis is done only
+            # for the holdings that will actually appear in the portfolio.
+            diversify_sectors = sector_focus == "All US-listed stocks (all sectors)"
+            snapshots = list(snapshot_by_ticker.values())
+            holdings_count = min(effective_holdings_count, len(snapshots))
             result = build_ai_portfolio(
-                snapshots,
-                holdings_count,
-                risk_profile,
+                snapshots, holdings_count, risk_profile,
                 diversify_sectors=diversify_sectors,
             )
+            failures = []
+            if result is not None:
+                progress = st.progress(0)
+                status = st.empty()
+                selected = result["holdings"]
+                short_history = [h["ticker"] for h in selected if len(technical_map[h["ticker"]]["data"]) < 650]
+                if short_history:
+                    status.caption("Requesting longer histories for ML...")
+                    prefetch_price_histories(short_history, min_rows=650)
+                    for symbol in short_history:
+                        refreshed = _read_price_cache(symbol)
+                        if refreshed is not None and len(refreshed) > len(technical_map[symbol]["data"]):
+                            technical_map[symbol] = technical_analysis_from_data(refreshed)
+                for index, holding in enumerate(selected):
+                    symbol = holding["ticker"]
+                    status.caption(
+                        "Training ML for selected holding {} ({}/{})...".format(
+                            symbol, index + 1, len(selected)
+                        )
+                    )
+                    # Price data was loaded during the candidate pass. Optional
+                    # fundamentals/news must not block a complete portfolio.
+                    try:
+                        add_portfolio_ml(holding, technical_map.get(symbol))
+                    except Exception as exc:
+                        holding["ml_status"] = "Model error: {}".format(exc)
+                        failures.append(symbol)
+                    progress.progress((index + 1) / len(selected))
+                status.empty()
+                progress.empty()
+                # Recalculate scores, weights, and weighted forecast on exactly
+                # these selected holdings, without changing the chosen tickers.
+                result = build_ai_portfolio(
+                    selected, len(selected), risk_profile,
+                    diversify_sectors=diversify_sectors,
+                )
 
             if result is None:
                 st.error(
@@ -4757,11 +4460,8 @@ with st.expander(
                             "Signal":
                                 holding["signal"],
 
-                            "Analysis":
-                                holding.get(
-                                    "analysis_depth",
-                                    "Full",
-                                ),
+                            "Analysis": holding.get("analysis_depth", "Technical + ML"),
+                            "ML Model": holding.get("ml_status", "Unavailable"),
 
                             "3M ML Score":
                                 (
@@ -4772,13 +4472,7 @@ with st.expander(
                                     else "N/A"
                                 ),
 
-                            "ML Reliability":
-                                "{:.0%}".format(
-                                    holding.get(
-                                        "ml_reliability",
-                                        0.0,
-                                    )
-                                ),
+                            "ML Reliability": ("{:.0%}".format(holding["ml_reliability"]) if holding.get("predicted_return_3m") is not None else "Unavailable"),
 
                             "3M ML Forecast":
                                 (
@@ -4834,6 +4528,13 @@ with st.expander(
 
                 portfolio_table = pd.DataFrame(rows)
 
+                st.session_state["last_portfolio"] = {
+                    "table": portfolio_table,
+                    "risk": risk_profile,
+                    "sector": sector_focus,
+                    "budget": budget,
+                }
+
                 st.dataframe(
                     portfolio_table,
                     use_container_width=True,
@@ -4845,15 +4546,15 @@ with st.expander(
                 )
 
                 st.write(
-                    "• First-pass screening scans every available stock in the selected U.S.-listed universe using momentum, trend, RSI, and volatility."
+                    "• The first pass ranks available U.S.-listed stocks using momentum, trend, RSI, and volatility."
                 )
 
                 st.write(
-                    "• The app batch-downloads and locally caches finalist price history, builds the full candidate pool first, then upgrades the strongest names with fundamentals/news/Random Forest analysis."
+                    "• The app caches candidate price histories and trains a fast Random Forest on the holdings actually selected."
                 )
 
                 st.write(
-                    "• If a Yahoo fundamentals/news/ML request fails, the stock no longer disappears. It stays available as a clearly labeled Technical fallback so the requested portfolio can still be completed."
+                    "• If a model cannot train, the stock remains in the portfolio and its model status is shown."
                 )
 
                 st.write(
@@ -4886,7 +4587,7 @@ with st.expander(
 
                 if failures:
                     with st.expander(
-                        "Full-analysis failures ({})".format(
+                        "Model errors ({})".format(
                             len(failures)
                         ),
                         expanded=False,
@@ -4897,10 +4598,18 @@ with st.expander(
                             )
                         )
                         st.caption(
-                            "These names were NOT removed from the candidate pool. v12 keeps their technical fallback instead of shrinking the portfolio."
+                            "These names remain in the portfolio with a technical score when their model is unavailable."
                         )
 
                 st.info(
                     "This is a model-generated research portfolio, not a guarantee of returns. "
-                    "The portfolio is selected from the current U.S.-listed stock universe. The broad first pass scans the market, while only the strongest finalists receive expensive fundamentals/news/ML analysis. Results can change as listings and market data change."
+                    "Quick mode samples listed stocks across sectors; enable the full market checkbox to screen every available symbol. Holdings use technical scores and a 3-month Random Forest forecast when enough data exists. This is a research experiment; results can change as market data changes."
                 )
+
+    elif "last_portfolio" in st.session_state:
+        saved_portfolio = st.session_state["last_portfolio"]
+        st.markdown("### Your latest portfolio")
+        st.caption("{} · {} · ${:,.0f} budget at build time. Rebuild to apply changed settings.".format(
+            saved_portfolio["risk"], saved_portfolio["sector"], saved_portfolio["budget"]
+        ))
+        st.dataframe(saved_portfolio["table"], use_container_width=True, hide_index=True)
