@@ -4904,4 +4904,3 @@ with st.expander(
                     "This is a model-generated research portfolio, not a guarantee of returns. "
                     "The portfolio is selected from the current U.S.-listed stock universe. The broad first pass scans the market, while only the strongest finalists receive expensive fundamentals/news/ML analysis. Results can change as listings and market data change."
                 )
-
