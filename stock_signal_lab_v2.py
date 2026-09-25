@@ -11,10 +11,13 @@ import time
 import shutil
 import hashlib
 import uuid
+import base64
+import html
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-st.set_page_config(page_title="Stock Signal Lab v15", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Mochi Market · Stock Signal Lab", page_icon="🌸", layout="wide")
 
 
 
@@ -278,38 +281,92 @@ def get_yfinance():
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
 # =========================================================
 
+MASCOT_SVG = r"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 390" fill="none">
+<defs><linearGradient id="sky" x2="1" y2="1"><stop stop-color="#ffe1ef"/><stop offset="1" stop-color="#f2e2ff"/></linearGradient><linearGradient id="pink" x2="0" y2="1"><stop stop-color="#fff9fc"/><stop offset="1" stop-color="#ffedee"/></linearGradient></defs>
+<ellipse cx="272" cy="220" rx="208" ry="150" fill="url(#sky)"/>
+<path d="M89 277C63 277 58 243 83 233C79 205 119 190 135 214C158 195 187 214 182 234C215 238 214 277 184 277Z" fill="#fff" opacity=".8"/>
+<path d="M386 295C356 295 354 262 376 254C373 229 402 217 420 237C441 222 468 236 467 256C494 260 493 294 466 295Z" fill="#fff" opacity=".9"/>
+<ellipse cx="277" cy="334" rx="173" ry="20" fill="#d9a2bf" opacity=".18"/>
+<!-- Mochi: floppy-eared bunny with strawberry bow -->
+<ellipse cx="216" cy="263" rx="68" ry="67" fill="url(#pink)" stroke="#ad6a8a" stroke-width="4"/>
+<path d="M165 164C139 144 133 69 158 67C182 66 188 116 190 143" fill="#fff8fb" stroke="#ad6a8a" stroke-width="4"/>
+<path d="M206 139C208 96 231 62 250 78C268 96 248 141 235 157" fill="#fff8fb" stroke="#ad6a8a" stroke-width="4"/>
+<path d="M160 85C152 87 163 124 173 137" stroke="#f7b9d2" stroke-width="12" stroke-linecap="round"/>
+<path d="M240 93C243 103 232 127 224 137" stroke="#f7b9d2" stroke-width="12" stroke-linecap="round"/>
+<ellipse cx="201" cy="184" rx="75" ry="62" fill="url(#pink)" stroke="#ad6a8a" stroke-width="4"/>
+<ellipse cx="153" cy="201" rx="16" ry="10" fill="#f9b5cb"/><ellipse cx="245" cy="201" rx="16" ry="10" fill="#f9b5cb"/>
+<ellipse cx="174" cy="183" rx="6" ry="8" fill="#785366"/><ellipse cx="223" cy="183" rx="6" ry="8" fill="#785366"/>
+<circle cx="176" cy="180" r="2" fill="white"/><circle cx="225" cy="180" r="2" fill="white"/>
+<path d="M193 197L200 202L207 197" fill="#d387a5"/><path d="M200 202C194 214 184 207 186 202M200 202C206 214 216 207 214 202" stroke="#97657b" stroke-width="3" stroke-linecap="round"/>
+<path d="M234 138C225 119 230 108 245 121L259 134C276 113 288 120 275 140C287 157 276 165 259 146C244 162 229 158 234 138Z" fill="#ea8bb5" stroke="#ad6a8a" stroke-width="3"/><circle cx="258" cy="138" r="8" fill="#ffcadf" stroke="#ad6a8a" stroke-width="3"/>
+<ellipse cx="179" cy="321" rx="25" ry="14" fill="#fff5fa" stroke="#ad6a8a" stroke-width="4"/><ellipse cx="248" cy="321" rx="25" ry="14" fill="#fff5fa" stroke="#ad6a8a" stroke-width="4"/>
+<path d="M180 261C184 236 214 238 219 260C231 237 259 247 252 271C246 291 219 306 219 306C219 306 176 285 180 261Z" fill="#f384a9" stroke="#bb6386" stroke-width="3"/>
+<path d="M206 251L219 246L230 254L218 258Z" fill="#a2bf8d"/><path d="M219 246L222 237" stroke="#80a16d" stroke-width="3" stroke-linecap="round"/>
+<path d="M195 267L197 272M219 268L221 273M239 267L237 272M211 289L213 294M230 285L228 290" stroke="#fff2c6" stroke-width="3" stroke-linecap="round"/>
+<ellipse cx="166" cy="269" rx="13" ry="20" transform="rotate(-30 166 269)" fill="#fff5fa" stroke="#ad6a8a" stroke-width="3"/>
+<!-- Miso: lilac kitten and heart pocket -->
+<path d="M407 299C447 281 455 307 431 321" stroke="#aa85b0" stroke-width="20" stroke-linecap="round"/>
+<path d="M407 299C447 281 455 307 431 321" stroke="#eedcf5" stroke-width="13" stroke-linecap="round"/>
+<ellipse cx="355" cy="277" rx="59" ry="54" fill="#f1e4f7" stroke="#aa85b0" stroke-width="4"/>
+<path d="M290 205L282 157Q284 147 296 154L324 171Q354 159 380 175L409 158Q418 156 417 168L413 215Q421 260 356 264Q294 262 290 205Z" fill="#f6ecfa" stroke="#aa85b0" stroke-width="4" stroke-linejoin="round"/>
+<path d="M294 170L300 193L315 181Z" fill="#eab4d5"/><path d="M403 173L390 186L405 196Z" fill="#eab4d5"/>
+<ellipse cx="312" cy="228" rx="14" ry="8" fill="#f1bad4"/><ellipse cx="393" cy="228" rx="14" ry="8" fill="#f1bad4"/>
+<path d="M320 211Q330 203 339 211M369 211Q378 203 387 211" stroke="#86658e" stroke-width="4" stroke-linecap="round"/>
+<path d="M348 222L355 227L362 222" fill="#c689b0"/><path d="M355 227Q348 239 342 231M355 227Q362 239 368 231" stroke="#96729c" stroke-width="3" stroke-linecap="round"/>
+<path d="M330 165Q325 145 341 151L355 164Q371 146 382 155Q384 165 370 176L355 169Q338 183 330 165Z" fill="#ffc5dc" stroke="#b581a3" stroke-width="3"/>
+<ellipse cx="327" cy="326" rx="21" ry="11" fill="#f6ecfa" stroke="#aa85b0" stroke-width="3"/><ellipse cx="386" cy="326" rx="21" ry="11" fill="#f6ecfa" stroke="#aa85b0" stroke-width="3"/>
+<path d="M340 285C336 270 353 266 357 277C363 265 379 272 374 285L357 301Z" fill="#f2adca"/>
+<!-- Twinkle, tiny star companion -->
+<path d="M378 50L390 76L419 79L398 99L403 128L378 115L353 128L358 99L337 79L366 76Z" fill="#fff1ba" stroke="#d7b381" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="369" cy="94" r="3" fill="#9e7f75"/><circle cx="388" cy="94" r="3" fill="#9e7f75"/>
+<path d="M374 102Q379 108 384 102" stroke="#b58b75" stroke-width="2" stroke-linecap="round"/>
+<circle cx="360" cy="101" r="4" fill="#f0bcbd"/><circle cx="395" cy="101" r="4" fill="#f0bcbd"/>
+<g stroke="#dda0c1" stroke-width="3" stroke-linecap="round"><path d="M97 144V164M87 154H107M452 182V198M444 190H460M293 53V67M286 60H300"/></g>
+<g fill="#e8aecb"><circle cx="112" cy="103" r="4"/><circle cx="457" cy="118" r="5"/><circle cx="284" cy="111" r="3"/><circle cx="95" cy="309" r="4"/></g>
+<path d="M441 66C431 56 419 68 441 83C463 67 450 56 441 66Z" fill="#efb0cc"/>
+</svg>"""
+MASCOT_URI = "data:image/svg+xml;base64," + base64.b64encode(MASCOT_SVG.encode()).decode()
+
 st.markdown("""
 <style>
-:root {color-scheme: light; --ink:#172b36; --muted:#66808a;}
-.stApp {background: radial-gradient(ellipse at 10% 5%, #c9e8e9 0, transparent 45%),
- radial-gradient(ellipse at 90% 25%, #dddafa 0, transparent 45%),
- radial-gradient(ellipse at 55% 95%, #e1efda 0, transparent 50%), #f5f8fa;
- background-attachment:fixed; color:var(--ink);}
-[data-testid="stHeader"] {background:transparent;}
-[data-testid="stSidebar"] {background:rgba(244,249,251,.88); border-right:1px solid #dbe7eb;}
-.block-container {max-width:1200px; padding-top:2.5rem; padding-bottom:4rem;}
-h1,h2,h3 {color:#172b36 !important; letter-spacing:-.04em; font-weight:600 !important;}
-p,label,[data-testid="stMarkdownContainer"] {color:#29434d;}
-.app-hero {padding:1.2rem 0 1.8rem;}
-.app-eyebrow,.stock-kicker {font-size:.7rem;letter-spacing:.19em;text-transform:uppercase;color:#66808a;}
-.app-hero h1 {font-size:clamp(2rem,5vw,3.4rem);margin:.5rem 0;}
-.app-hero p {color:#66808a;max-width:600px;}
-[data-testid="stMetric"] {background:rgba(255,255,255,.65);border:1px solid rgba(255,255,255,.9);
- border-radius:16px;padding:1.1rem;box-shadow:0 5px 24px #314c5c06;}
-[data-testid="stMetricValue"] {color:#172b36;font-size:1.75rem;letter-spacing:-.04em;}
-[data-testid="stExpander"] {background:rgba(255,255,255,.5);border:1px solid #dce7eb;border-radius:16px;}
-.stButton button,.stDownloadButton button {border-radius:10px;border:1px solid #d0dfe4;transition:.2s;}
-.stButton button[kind="primary"] {background:#193f49;color:white;border:0;}
-.stButton button:hover {border-color:#76a3ad;transform:translateY(-1px);}
-.stock-hero {display:flex;justify-content:space-between;align-items:center;padding:1rem 0 1.5rem;}
-.stock-name {font-size:2rem;font-weight:650;letter-spacing:-.05em;}
-.stock-company {color:#66808a;}
-.signal-pill {padding:.45rem .8rem;border-radius:100px;background:#deece7;font-size:.8rem;}
-hr {border-color:#dce7eb;}
+:root{color-scheme:light;--ink:#693d56;--muted:#987289;--pink:#d65390;--line:#f1d6e3;--paper:#fffafd;}
+.stApp{background:radial-gradient(ellipse at 8% 8%,#ffe2ed 0,transparent 40%),radial-gradient(ellipse at 95% 40%,#f0e4ff 0,transparent 45%),#fff8fc;background-attachment:fixed;color:var(--ink);}
+.stApp:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:radial-gradient(#e8b2cd55 1px,transparent 1px);background-size:24px 24px;z-index:0;}
+[data-testid="stHeader"]{background:rgba(255,248,252,.86);backdrop-filter:blur(16px);}
+[data-testid="stSidebar"]{background:#fff5fa;border-right:1px solid var(--line);}
+[data-testid="stSidebar"] .block-container{padding-top:1.8rem;}
+.block-container{max-width:1190px;padding-top:2rem;padding-bottom:3rem;position:relative;}
+h1,h2,h3{font-family:"Trebuchet MS","Arial Rounded MT Bold",sans-serif!important;color:var(--ink)!important;letter-spacing:-.035em;font-weight:700!important;}
+p,label,[data-testid="stMarkdownContainer"]{color:var(--ink);}
+[data-testid="stCaptionContainer"] p{color:var(--muted);font-size:.82rem;}
+.app-hero{position:relative;display:flex;align-items:center;justify-content:space-between;min-height:300px;margin-bottom:1.3rem;padding:30px 38px;border:1px solid #f2ccde;border-radius:30px;background:linear-gradient(115deg,#fffdfc 5%,#fff0f7 65%,#f6edff);box-shadow:0 10px 35px #bb739012;overflow:hidden;}
+.hero-copy{width:58%;z-index:1;}.app-eyebrow{display:inline-block;padding:7px 13px;border:1px solid #efd0dd;border-radius:30px;color:#a0577d;background:#fff9fb;font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;}
+.app-hero h1{font-size:clamp(2.5rem,4.5vw,3.8rem);line-height:1.08;margin:16px 0 12px;}.app-hero p{max-width:330px;color:#98677f;font-size:.95rem;line-height:1.7;}.hero-art{width:44%;max-width:360px;filter:drop-shadow(0 9px 6px #d38db21a);}
+.hero-foot{font-size:.72rem;color:#b07795;letter-spacing:.03em;margin-top:15px;}
+.sidebar-brand{font-family:"Trebuchet MS",sans-serif;font-size:1.4rem;font-weight:bold;color:#995471;letter-spacing:-.04em;}.sidebar-art{display:block;width:180px;margin:-8px auto -12px;}.sidebar-note{text-align:center;font-size:.7rem;color:#aa7d93;}
+[data-testid="stMetric"]{background:linear-gradient(150deg,#ffffff,#fff7fb);border:1px solid var(--line);border-radius:19px;padding:1rem 1.2rem;box-shadow:0 5px 14px #ad698607;}
+[data-testid="stMetricValue"]{color:#8c456a;font-size:1.75rem;letter-spacing:-.035em;}
+[data-testid="stMetricLabel"]{color:#92687f;font-size:.8rem;}
+.stButton button,.stDownloadButton button{border-radius:12px;border:1px solid #ebc7da;background:#fffcfe;color:#955d79;transition:background .18s,box-shadow .18s;}
+.stButton button:hover{background:#ffe8f3;border-color:#d985ae;box-shadow:0 4px 12px #c67ba31a;}
+.stButton button[kind="primary"],button[kind="primaryFormSubmit"]{background:#cf6399;color:white;border:1px solid #c5578d;box-shadow:0 4px 0 #af4e7930;}
+[data-testid="stSidebar"] .stButton button{justify-content:flex-start;border-radius:11px;}
+[data-baseweb="input"],[data-baseweb="select"]>div,[data-baseweb="textarea"]{background:#fffafd!important;border-color:#eed0e0!important;border-radius:12px!important;color:var(--ink)!important;}
+[data-testid="stExpander"]{background:#fffbfd;border:1px solid var(--line);border-radius:16px;}
+[data-baseweb="tab-list"]{gap:9px;border-bottom:1px solid #eed3e1;padding-bottom:7px;margin-top:18px;}
+button[data-baseweb="tab"]{border-radius:11px;padding:8px 17px;color:#976b82;background:#fff5fa;}
+button[data-baseweb="tab"][aria-selected="true"]{background:#f9ddeb;color:#9a4972;}
+[data-baseweb="tab-highlight"]{background:#d477a3;height:2px;}
+[data-testid="stDataFrame"]{border:1px solid #edd3e1;border-radius:16px;overflow:hidden;}
+.stock-hero{display:flex;align-items:center;justify-content:space-between;margin:1.4rem 0 1rem;}.stock-kicker{font-size:.68rem;color:#a87490;letter-spacing:.12em;text-transform:uppercase;}.stock-name{font-family:"Trebuchet MS",sans-serif;font-size:2rem;color:#7c4662;font-weight:bold;}.stock-company{font-size:.88rem;color:#9b7289;}
+.signal-pill{padding:8px 16px;background:#fce4ef;border:1px solid #edc1d5;border-radius:50px;font-size:.77rem;color:#a4567c;font-weight:bold;}
+.empty-garden{display:flex;align-items:center;gap:1.5rem;margin:14px 0;padding:12px 24px;border:1px dashed #e8bfd4;background:#fffbfd;border-radius:20px;}.empty-garden img{width:125px;}.empty-garden h3{font-size:1.15rem;margin:0 0 5px;}.empty-garden p{font-size:.85rem;color:#a1778d;margin:0;}
+hr{border-color:#eed6e2;}[data-testid="stAlert"]{border-radius:14px;}
+@media(max-width:700px){.app-hero{padding:22px;min-height:0;flex-direction:column;align-items:flex-start;}.hero-copy{width:100%;}.hero-art{width:230px;align-self:center;margin-top:-15px;}.app-hero h1{font-size:2.8rem;}.block-container{padding-left:1rem;padding-right:1rem;}.empty-garden{padding:12px;gap:8px;}.empty-garden img{width:90px;}button[data-baseweb="tab"]{padding:6px 10px;}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;}}
 </style>
-<div class="app-hero"><div class="app-eyebrow">Signal / research workspace</div>
-<h1>A clearer market view.</h1><p>Your watchlist, market signals, and portfolio research. One quiet workspace.</p></div>
 """, unsafe_allow_html=True)
+st.markdown('<div class="app-hero"><div class="hero-copy"><div class="app-eyebrow">♡ your little investing corner</div><h1>Mochi Market<span style="color:#d77ca7">.</span></h1><p>A softer space for serious research.<br>Your stocks, a little clearer.</p><div class="hero-foot">Meet Mochi, Miso &amp; Twinkle ✧</div></div><img class="hero-art" alt="Mochi the bunny holding a strawberry, Miso the lilac kitten, and Twinkle the smiling star" src="' + MASCOT_URI + '"></div>', unsafe_allow_html=True)
 
 
 STRONG_BUY_THRESHOLD = 80
@@ -704,84 +761,263 @@ def download_data(ticker, force_refresh=False):
     )
 
 
-def download_fundamentals(ticker):
-    cached = _read_json_cache(
-        "fundamentals",
-        ticker,
-        FUNDAMENTAL_CACHE_TTL,
-    )
+FUNDAMENTAL_FIELDS = ("revenue_growth", "earnings_growth", "profit_margin", "forward_pe", "debt_to_equity", "free_cash_flow")
 
-    if cached is not None:
-        return cached
 
-    yf = get_yfinance()
+def _fundamental_count(value):
+    return sum(safe_float((value or {}).get(key)) is not None for key in FUNDAMENTAL_FIELDS)
+
+
+def _statement_value(frame, aliases, column):
+    if frame is None or frame.empty or column not in frame.columns:
+        return None
+    for alias in aliases:
+        if alias in frame.index:
+            return safe_float(frame.loc[alias, column])
+    return None
+
+
+def _statement_fundamentals(income, balance, cashflow):
+    """Use dated, annual statement values only when the snapshot is missing."""
     result = {}
+    if isinstance(income, pd.DataFrame) and not income.empty:
+        income = income.reindex(sorted(income.columns, reverse=True), axis=1)
+        current = income.columns[0]
+        revenue = _statement_value(income, ["TotalRevenue", "Total Revenue", "OperatingRevenue"], current)
+        net_income = _statement_value(income, ["NetIncome", "Net Income", "NetIncomeCommonStockholders"], current)
+        if revenue is not None and revenue > 0 and net_income is not None:
+            result["profit_margin"] = net_income / revenue
+        if len(income.columns) > 1:
+            previous = income.columns[1]
+            # Never label a skipped reporting year as one-year growth.
+            gap = (pd.Timestamp(current) - pd.Timestamp(previous)).days
+            if 300 <= gap <= 430:
+                old_revenue = _statement_value(income, ["TotalRevenue", "Total Revenue", "OperatingRevenue"], previous)
+                old_income = _statement_value(income, ["NetIncome", "Net Income", "NetIncomeCommonStockholders"], previous)
+                if revenue is not None and old_revenue is not None and old_revenue > 0:
+                    result["revenue_growth"] = revenue / old_revenue - 1
+                if net_income is not None and old_income is not None and old_income > 0:
+                    result["earnings_growth"] = net_income / old_income - 1
+        result["statement_date"] = str(pd.Timestamp(current).date())
+    if isinstance(balance, pd.DataFrame) and not balance.empty:
+        column = max(balance.columns)
+        debt = _statement_value(balance, ["TotalDebt", "Total Debt"], column)
+        equity = _statement_value(balance, ["StockholdersEquity", "Stockholders Equity", "TotalEquityGrossMinorityInterest"], column)
+        if debt is not None and equity is not None and equity > 0:
+            result["debt_to_equity"] = debt / equity
+    if isinstance(cashflow, pd.DataFrame) and not cashflow.empty:
+        column = max(cashflow.columns)
+        fcf = _statement_value(cashflow, ["FreeCashFlow", "Free Cash Flow"], column)
+        if fcf is None:
+            operating = _statement_value(cashflow, ["OperatingCashFlow", "Operating Cash Flow"], column)
+            capex = _statement_value(cashflow, ["CapitalExpenditure", "Capital Expenditure"], column)
+            if operating is not None and capex is not None:
+                fcf = operating - abs(capex)
+        result["free_cash_flow"] = fcf
+    return result
 
-    for attempt in range(2):
+
+@st.cache_resource(show_spinner=False)
+def _sec_request_state():
+    return {"lock": threading.Lock(), "last": 0.0}
+
+
+def _sec_json(url):
+    import requests
+    state = _sec_request_state()
+    with state["lock"]:
+        delay = 0.25 - (time.monotonic() - state["last"])
+        if delay > 0:
+            time.sleep(delay)
+        state["last"] = time.monotonic()
+    response = requests.get(url, timeout=(4, 12), headers={
+        "User-Agent": os.environ.get("SEC_USER_AGENT", "MochiMarket research application contact https://github.com/underurmom01/thingy"),
+        "Accept": "application/json",
+    })
+    response.raise_for_status()
+    return response.json()
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _sec_ticker_index():
+    cached = _read_json_cache("sec_index_v1", "tickers", 86400)
+    if cached:
+        return cached
+    records = _sec_json("https://www.sec.gov/files/company_tickers.json")
+    result = {normalize_yahoo_symbol(item["ticker"]): int(item["cik_str"]) for item in records.values()}
+    _write_json_cache("sec_index_v1", "tickers", result)
+    return result
+
+
+def _sec_annual_series(facts, aliases):
+    """Annual USD facts, newest restatement per period, explicit tag priority."""
+    result = {}
+    for alias in aliases:
+        candidates = {}
+        for entry in facts.get(alias, {}).get("units", {}).get("USD", []):
+            if entry.get("form") not in ("10-K", "10-K/A") or not entry.get("start"):
+                continue
+            try:
+                duration = (pd.Timestamp(entry["end"]) - pd.Timestamp(entry["start"])).days
+            except (ValueError, KeyError):
+                continue
+            if not 300 <= duration <= 430 or safe_float(entry.get("val")) is None:
+                continue
+            end = entry["end"]
+            if end not in candidates or entry.get("filed", "") > candidates[end].get("filed", ""):
+                candidates[end] = entry
+        for end, entry in candidates.items():
+            result.setdefault(end, entry)
+    return result
+
+
+def _sec_fundamentals_from_facts(payload):
+    facts = payload.get("facts", {}).get("us-gaap", {})
+    revenue = _sec_annual_series(facts, ["RevenueFromContractWithCustomerExcludingAssessedTax", "RevenueFromContractWithCustomerIncludingAssessedTax", "Revenues", "SalesRevenueNet"])
+    income = _sec_annual_series(facts, ["NetIncomeLoss", "ProfitLoss"])
+    operating = _sec_annual_series(facts, ["NetCashProvidedByUsedInOperatingActivities"])
+    capex = _sec_annual_series(facts, ["PaymentsToAcquirePropertyPlantAndEquipment"])
+    result = {"company_name": payload.get("entityName"), "currency": "USD", "source": "SEC EDGAR annual filings"}
+    if revenue:
+        dates = sorted(revenue, reverse=True)
+        end = dates[0]
+        current = revenue[end]["val"]
+        result["statement_date"] = end
+        result["filed_at"] = revenue[end].get("filed")
+        result["filing_accession"] = revenue[end].get("accn")
+        if current > 0 and end in income and income[end]["start"] == revenue[end]["start"]:
+            result["profit_margin"] = income[end]["val"] / current
+        if len(dates) > 1 and 300 <= (pd.Timestamp(end)-pd.Timestamp(dates[1])).days <= 430:
+            previous = dates[1]
+            prior_revenue = revenue[previous]["val"]
+            if prior_revenue > 0:
+                result["revenue_growth"] = current / prior_revenue - 1
+            if end in income and previous in income and income[previous]["val"] > 0:
+                if income[end]["start"] == revenue[end]["start"] and income[previous]["start"] == revenue[previous]["start"]:
+                    result["earnings_growth"] = income[end]["val"] / income[previous]["val"] - 1
+    if operating and capex:
+        latest = max(operating)
+        if latest in capex and operating[latest]["start"] == capex[latest]["start"]:
+            result["free_cash_flow"] = operating[latest]["val"] - abs(capex[latest]["val"])
+            result["cashflow_date"] = latest
+    return result
+
+
+def download_sec_fundamentals(symbol):
+    cached = _read_json_cache("sec_financials_v1", symbol, 86400)
+    if _fundamental_count(cached):
+        return cached
+    failure = _read_json_cache("sec_failures_v1", symbol, 300)
+    if failure:
+        return {}
+    try:
+        cik = _sec_ticker_index().get(symbol)
+        if cik is None:
+            return {}
+        payload = _sec_json("https://data.sec.gov/api/xbrl/companyfacts/CIK{:010d}.json".format(cik))
+        result = _sec_fundamentals_from_facts(payload)
+        if _fundamental_count(result):
+            _write_json_cache("sec_financials_v1", symbol, result)
+            return result
+    except Exception:
+        pass
+    _write_json_cache("sec_failures_v1", symbol, {"unavailable": True})
+    return {}
+
+
+def download_fundamentals(ticker, force_refresh=False):
+    symbol = normalize_yahoo_symbol(ticker)
+    if not symbol:
+        return {"status": "unavailable", "message": "Enter a valid ticker."}
+    kind = "fundamentals_v18"
+    cached = _read_json_cache(kind, symbol, FUNDAMENTAL_CACHE_TTL)
+    if not force_refresh and _fundamental_count(cached):
+        return cached
+    if not force_refresh:
+        recent_failure = _read_json_cache("fundamental_failures_v18", symbol, 60)
+        if recent_failure is not None:
+            return recent_failure
+    result = dict.fromkeys(FUNDAMENTAL_FIELDS)
+    errors = []
+    rate_limited = False
+    stock = get_yfinance().Ticker(symbol)
+    try:
+        info = stock.get_info() or {}
+        if not isinstance(info, dict):
+            info = {}
+        result.update(
+            company_name=info.get("longName") or info.get("shortName"),
+            sector=info.get("sector"), currency=info.get("financialCurrency") or info.get("currency"),
+            revenue_growth=safe_float(info.get("revenueGrowth")),
+            earnings_growth=safe_float(info.get("earningsGrowth")),
+            profit_margin=safe_float(info.get("profitMargins")),
+            forward_pe=safe_float(info.get("forwardPE")),
+            free_cash_flow=safe_float(info.get("freeCashflow")),
+        )
+        debt_percent = safe_float(info.get("debtToEquity"))
+        result["debt_to_equity"] = debt_percent / 100 if debt_percent is not None else None
+    except Exception as exc:
+        rate_limited = "RateLimit" in type(exc).__name__ or "429" in str(exc)
+        errors.append("Yahoo is temporarily rate-limiting requests." if rate_limited else "Snapshot: {}".format(type(exc).__name__))
+    # Fetch only the missing statement families. Forward P/E cannot be
+    # reconstructed from historical statements and is never fabricated.
+    statement_fields = {
+        "income": ("revenue_growth", "earnings_growth", "profit_margin"),
+        "balance": ("debt_to_equity",), "cashflow": ("free_cash_flow",),
+    }
+    methods = {"income": stock.get_income_stmt, "balance": stock.get_balance_sheet, "cashflow": stock.get_cashflow}
+    tables = {key: None for key in methods}
+    missing = [key for key, fields in statement_fields.items() if any(result.get(field) is None for field in fields)]
+    if missing and not rate_limited:
+        with ThreadPoolExecutor(max_workers=min(3, len(missing))) as executor:
+            jobs = {executor.submit(methods[key], freq="yearly"): key for key in missing}
+            for job in as_completed(jobs):
+                key = jobs[job]
+                try:
+                    tables[key] = job.result()
+                except Exception as exc:
+                    errors.append("{}: {}".format(key, type(exc).__name__))
+    fallback = _statement_fundamentals(tables["income"], tables["balance"], tables["cashflow"])
+    fallback_fields = []
+    for key in FUNDAMENTAL_FIELDS:
+        if result.get(key) is None and safe_float(fallback.get(key)) is not None:
+            result[key] = fallback[key]
+            fallback_fields.append(key)
+    result.update(statement_date=fallback.get("statement_date"), statement_fields=fallback_fields,
+                  fetched_at=pd.Timestamp.now(tz="UTC").isoformat(), errors=errors, source="Yahoo Finance")
+    if _fundamental_count(result) < 3:
+        sec = download_sec_fundamentals(symbol)
+        sec_fields = []
+        for key in FUNDAMENTAL_FIELDS:
+            if result.get(key) is None and safe_float(sec.get(key)) is not None:
+                result[key] = sec[key]
+                sec_fields.append(key)
+        if sec_fields:
+            result["source"] = "SEC EDGAR annual filings" if len(sec_fields) == _fundamental_count(result) else "Yahoo Finance + SEC EDGAR annual filings"
+            result["sec_fields"] = sec_fields
+            for key in ("statement_date", "cashflow_date", "filed_at", "filing_accession"):
+                result[key] = sec.get(key) or result.get(key)
+            result["company_name"] = result.get("company_name") or sec.get("company_name")
+            result["currency"] = result.get("currency") or sec.get("currency")
+    count = _fundamental_count(result)
+    result["coverage"] = count
+    if count:
+        result["status"] = "ready" if count == len(FUNDAMENTAL_FIELDS) else "partial"
+        result["message"] = "{} of {} company metrics available.".format(count, len(FUNDAMENTAL_FIELDS))
+        _write_json_cache(kind, symbol, result)
         try:
-            info = yf.Ticker(
-                ticker
-            ).get_info()
-
-            if not isinstance(info, dict):
-                info = {}
-
-            result = {
-                "company_name":
-                    info.get("longName")
-                    or info.get("shortName"),
-                "sector":
-                    info.get("sector"),
-                "revenue_growth":
-                    normalize_fraction(
-                        info.get(
-                            "revenueGrowth"
-                        )
-                    ),
-                "earnings_growth":
-                    normalize_fraction(
-                        info.get(
-                            "earningsGrowth"
-                        )
-                    ),
-                "profit_margin":
-                    normalize_fraction(
-                        info.get(
-                            "profitMargins"
-                        )
-                    ),
-                "forward_pe":
-                    safe_float(
-                        info.get(
-                            "forwardPE"
-                        )
-                    ),
-                "debt_to_equity":
-                    safe_float(
-                        info.get(
-                            "debtToEquity"
-                        )
-                    ),
-                "free_cash_flow":
-                    safe_float(
-                        info.get(
-                            "freeCashflow"
-                        )
-                    ),
-            }
-
-            break
-
-        except Exception:
-            if attempt == 0:
-                time.sleep(0.25)
-
-    _write_json_cache(
-        "fundamentals",
-        ticker,
-        result,
-    )
-
+            _json_cache_path("fundamental_failures_v18", symbol).unlink(missing_ok=True)
+        except OSError:
+            pass
+    else:
+        stale = _read_json_cache(kind, symbol, 7 * 24 * 3600)
+        if _fundamental_count(stale):
+            result = dict(stale, status="stale", message="Showing the last saved company data; Yahoo could not refresh it.")
+        else:
+            result["status"] = "unavailable"
+            result["message"] = "Company financials are temporarily unavailable from Yahoo and the public-filings fallback. Retry shortly; some funds and new listings do not publish these metrics."
+        # A failed provider response is never kept as a successful 12h result.
+        _write_json_cache("fundamental_failures_v18", symbol, result)
     return result
 
 
@@ -1363,7 +1599,7 @@ def fundamental_score(fund):
 
     debt = fund.get("debt_to_equity")
     if debt is not None:
-        ratio = debt / 100.0 if debt > 10 else debt
+        ratio = debt
         if ratio <= 0.30:
             debt_score = 100
         elif ratio <= 0.70:
@@ -3018,6 +3254,24 @@ def portfolio_snapshot(
     }
 
 
+def enrich_portfolio_holding(snapshot, technical):
+    try:
+        fundamentals = download_fundamentals(snapshot["ticker"])
+        score, _ = fundamental_score(fundamentals)
+        snapshot["fundamental_score"] = score
+        snapshot["fundamentals_status"] = fundamentals.get("status", "unavailable")
+        if fundamentals.get("company_name"):
+            snapshot["company_name"] = fundamentals["company_name"]
+        snapshot["overall_score"] = hybrid_score(snapshot["technical_score"], score, snapshot.get("event_score"), snapshot.get("reaction_score"))
+        snapshot["signal"] = label_from_score(snapshot["overall_score"])
+    except Exception:
+        snapshot["fundamentals_status"] = "unavailable"
+    updated = add_portfolio_ml(snapshot, technical)
+    if updated.get("fundamental_score") is not None:
+        updated["analysis_depth"] = "Technical + company" + (" + ML" if updated.get("predicted_return_3m") is not None else "")
+    return updated
+
+
 def add_portfolio_ml(snapshot, technical):
     """Train a fast forecast only for a selected holding."""
     if technical is None:
@@ -3643,8 +3897,9 @@ if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = [symbol for symbol, _ in FEATURED_STOCKS]
 
 with st.sidebar:
-    st.markdown("### Your watchlist")
-    st.caption("Choose a symbol to open its research.")
+    st.markdown('<div class="sidebar-brand">♡ Mochi Market</div><img class="sidebar-art" alt="Your bunny and kitten research companions" src="'+MASCOT_URI+'"><div class="sidebar-note">a little company for your watchlist</div>', unsafe_allow_html=True)
+    st.markdown("### My watchlist")
+    st.caption("Pick a stock. Let’s take a peek.")
     for symbol in st.session_state["watchlist"]:
         st.button(symbol, key="watch_" + symbol, on_click=choose_ticker,
                   args=(symbol,), use_container_width=True)
@@ -3671,7 +3926,7 @@ with st.sidebar:
             st.cache_data.clear()
             clear_local_disk_cache()
             st.success("Market caches cleared.")
-    st.caption("Signal Lab · research workspace")
+    st.caption("Made for curious minds ♡")
 
 
 ticker = st.text_input(
@@ -3695,11 +3950,10 @@ should_analyze = analyze_clicked or st.session_state.get("auto_analyze", False)
 
 if should_analyze:
     st.session_state["auto_analyze"] = False
-
     if not ticker:
         st.warning("Enter a ticker first.")
     else:
-        with st.spinner("Pulling price, fundamentals, earnings, and news..."):
+        with st.spinner("Mochi is gathering your research…"):
             with ThreadPoolExecutor(max_workers=4) as executor:
                 technical_job = executor.submit(technical_analysis, ticker)
                 fund_job = executor.submit(download_fundamentals, ticker)
@@ -3709,196 +3963,134 @@ if should_analyze:
                 fundamentals = fund_job.result()
                 earnings = earnings_job.result()
                 news_items = news_job.result()
+            if technical is None:
+                st.error("Price history is unavailable for this ticker. Try again shortly.")
+            else:
+                forecasts = run_all_forecasts(ticker)
+                st.session_state["analysis_bundle"] = dict(
+                    ticker=ticker, technical=technical, fundamentals=fundamentals,
+                    earnings=earnings, news_items=news_items, forecasts=forecasts,
+                )
 
-        if technical is None:
-            st.error("Could not load usable price history for that ticker. Try Refresh cached data once; if it still fails, Yahoo may not currently expose that symbol.")
+bundle = st.session_state.get("analysis_bundle")
+if bundle and bundle["ticker"] == ticker:
+    technical, fundamentals = bundle["technical"], bundle["fundamentals"]
+    earnings, news_items, forecasts = bundle["earnings"], bundle["news_items"], bundle["forecasts"]
+    fund_score, fund_notes = fundamental_score(fundamentals)
+    evt_score, evt_notes = event_score(earnings, news_items)
+    reaction = market_reaction(technical, fund_score, evt_score)
+    reaction_score = reaction["opportunity_score"] if reaction else None
+    forecast_3m = forecasts.get("3 Months")
+    overall, ml_score, ml_reliability, ml_guardrail_note = ml_adjusted_hybrid_score(
+        technical["technical_score"], fund_score, evt_score, reaction_score, forecast_3m,
+    )
+    label = label_from_score(overall)
+    company_name = fundamentals.get("company_name") or ticker
+    st.markdown('<div class="stock-hero"><div><div class="stock-kicker">your research, at a glance</div><div class="stock-name">'+html.escape(ticker)+'</div><div class="stock-company">'+html.escape(company_name)+'</div></div><div class="signal-pill">'+label+'</div></div>', unsafe_allow_html=True)
+    c1,c2,c3 = st.columns(3)
+    c1.metric("Current price", "${:,.2f}".format(technical["price"]))
+    c2.metric("Research score", "{:.0f}/100".format(overall))
+    c3.metric("3-month ML outlook", "{:+.1%}".format(forecast_3m["predicted_return"]) if forecast_3m else "Unavailable")
+    st.caption("Historical model estimate · not a promised return")
+    if ml_guardrail_note:
+        st.caption(ml_guardrail_note)
+    overview_tab, company_tab, forecast_tab, news_tab = st.tabs(["✧ Overview", "♡ Company", "☁ Forecasts", "✿ News"])
+    with overview_tab:
+        st.line_chart(technical["chart"][["Price"]].tail(504), color="#cf6399", use_container_width=True)
+        cols=st.columns(3)
+        for col,key,name in zip(cols,["return_1m","return_3m","return_6m"],["Past month","Past 3 months","Past 6 months"]):
+            value=safe_float(technical[key])
+            col.metric(name, "{:+.1%}".format(value) if value is not None else "Unavailable")
+        with st.expander("Behind the research score"):
+            st.dataframe(pd.DataFrame({"Component":["Technical","Company","Earnings & news","Market reaction","3M machine learning"],"Score":["{:.0f}/100".format(value) if value is not None else "Unavailable" for value in [technical["technical_score"],fund_score,evt_score,reaction_score,ml_score]]}),hide_index=True,use_container_width=True)
+            st.caption("Available components are weighted together; missing company data is not treated as a zero score.")
+            if forecast_3m:
+                st.caption("ML reliability weight: {:.0%}".format(ml_reliability))
+        with st.expander("Technical indicators & moving averages"):
+            t1,t2,t3=st.columns(3)
+            t1.metric("RSI", "{:.1f}".format(technical["rsi"]))
+            t2.metric("Annual volatility", "{:.1%}".format(technical["annualized_volatility"]))
+            t3.metric("Max drawdown", "{:.1%}".format(technical["max_drawdown"]))
+            st.line_chart(technical["chart"].tail(504),color=["#cc6296","#e9a1c1","#b599ce","#b7a388"],use_container_width=True)
+    with company_tab:
+        status=fundamentals.get("status", "unavailable")
+        if status in ("unavailable","stale"):
+            st.warning(fundamentals.get("message", "Company data is unavailable."))
         else:
-            fund_score, fund_notes = fundamental_score(fundamentals)
-            evt_score, evt_notes = event_score(earnings, news_items)
-            reaction = market_reaction(technical, fund_score, evt_score)
-            reaction_score = reaction["opportunity_score"] if reaction is not None else None
-
-            with st.spinner(
-                "Training historical ML forecasts..."
-            ):
-                forecasts = run_all_forecasts(
-                    ticker
-                )
-
-            forecast_3m = forecasts.get(
-                "3 Months"
-            )
-
-            (
-                overall,
-                ml_score,
-                ml_reliability,
-                ml_guardrail_note,
-            ) = ml_adjusted_hybrid_score(
-                technical["technical_score"],
-                fund_score,
-                evt_score,
-                reaction_score,
-                forecast_3m,
-            )
-
-            label = label_from_score(
-                overall
-            )
-
-            company_name = fundamentals.get("company_name") if fundamentals else None
-
-            signal_class = "signal-" + label.lower().replace(" ", "-")
-            display_company = company_name if company_name else "Market analysis"
-            st.markdown(
-                """
-                <div class="stock-hero">
-                    <div>
-                        <div class="stock-kicker">Current analysis</div>
-                        <div class="stock-name">{ticker}</div>
-                        <div class="stock-company">{company}</div>
-                    </div>
-                    <div class="signal-pill {signal_class}">{label}</div>
-                </div>
-                """.format(
-                    ticker=ticker,
-                    company=display_company,
-                    signal_class=signal_class,
-                    label=label,
-                ),
-                unsafe_allow_html=True,
-            )
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Hybrid Signal", label)
-            c2.metric("Overall Score", "{:.1f}/100".format(overall))
-            c3.metric("Current Price", "${:.2f}".format(technical["price"]))
-            st.caption("Final signal blends technicals, fundamentals, earnings/news, market reaction, and the reliability-adjusted 3M ML forecast.")
-
-            st.divider()
-            st.subheader("Score Breakdown")
-            b1, b2, b3, b4, b5 = st.columns(5)
-            b1.metric("Technical", "{:.0f}/100".format(technical["technical_score"]))
-            b2.metric("Fundamentals", "{:.0f}/100".format(fund_score) if fund_score is not None else "N/A")
-            b3.metric("Earnings / News", "{:.0f}/100".format(evt_score) if evt_score is not None else "N/A")
-            b4.metric("Reaction", "{:.0f}/100".format(reaction_score) if reaction_score is not None else "N/A")
-            b5.metric(
-                "3M ML",
-                "{:.0f}/100".format(ml_score)
-                if ml_score is not None
-                else "N/A",
-            )
-
-            if forecast_3m is not None:
-                st.caption(
-                    "3M ML forecast: {:+.1%} · ML reliability weight: {:.0%}".format(
-                        forecast_3m["predicted_return"],
-                        ml_reliability,
-                    )
-                )
-
-            if ml_guardrail_note:
-                st.warning(
-                    ml_guardrail_note
-                )
-
-            st.subheader("Technical Picture")
-            t1, t2, t3 = st.columns(3)
-            t1.metric("1 Month", "{:+.1%}".format(technical["return_1m"]))
-            t2.metric("3 Months", "{:+.1%}".format(technical["return_3m"]))
-            t3.metric("6 Months", "{:+.1%}".format(technical["return_6m"]))
-            t4, t5, t6 = st.columns(3)
-            t4.metric("RSI", "{:.1f}".format(technical["rsi"]))
-            t5.metric("Annualized Volatility", "{:.1%}".format(technical["annualized_volatility"]))
-            t6.metric("Max Drawdown", "{:.1%}".format(technical["max_drawdown"]))
-            st.line_chart(technical["chart"].tail(504), use_container_width=True)
-
-            st.subheader("Fundamentals")
-            if not fundamentals:
-                st.warning("Fundamental data was unavailable.")
+            st.caption(fundamentals.get("message", "Company financial snapshot"))
+        company_metrics=[("Revenue growth","revenue_growth","{:+.1%}"),("Earnings growth","earnings_growth","{:+.1%}"),("Profit margin","profit_margin","{:.1%}"),("Forward P/E","forward_pe","{:.1f}×"),("Debt / equity","debt_to_equity","{:.2f}×"),("Free cash flow","free_cash_flow","{:,.0f}")]
+        for offset in (0,3):
+            for col,(name,key,fmt) in zip(st.columns(3),company_metrics[offset:offset+3]):
+                value=safe_float(fundamentals.get(key))
+                col.metric(name,fmt.format(value) if value is not None else "Unavailable")
+        if fundamentals.get("currency"):
+            st.caption("Cash flow reported in {}.".format(fundamentals["currency"]))
+        if fundamentals.get("statement_fields"):
+            st.caption("Annual-statement fallback: {}. Latest income statement: {}. Snapshot metrics may cover different periods.".format(
+                ", ".join(key.replace("_"," ") for key in fundamentals["statement_fields"]),fundamentals.get("statement_date") or "not provided"))
+        if fundamentals.get("sec_fields"):
+            st.caption("Public-filings fallback: {}. Fiscal year ended {}. Cash-flow period ended {}. Forward P/E requires analyst estimates and is not supplied by SEC filings.".format(
+                ", ".join(key.replace("_", " ") for key in fundamentals["sec_fields"]), fundamentals.get("statement_date") or "not provided", fundamentals.get("cashflow_date") or "not provided"))
+        if fundamentals.get("fetched_at"):
+            st.caption("Fetched {} UTC · {}".format(fundamentals["fetched_at"][:16].replace("T"," "), fundamentals.get("source", "Yahoo Finance")))
+        if st.button("Refresh company data",key="refresh_company"):
+            with st.spinner("Refreshing company financials…"):
+                bundle["fundamentals"] = download_fundamentals(ticker,force_refresh=True)
+            st.rerun()
+        with st.expander("Financial notes & data availability"):
+            for note in fund_notes:
+                st.write("• "+note)
+            st.caption("Some funds, young companies, and foreign listings lack these fields. Unavailable metrics are excluded from the score.")
+            for error in fundamentals.get("errors",[]):
+                st.caption(error)
+    with forecast_tab:
+        forecast_rows=[]
+        for name in HORIZONS:
+            forecast=forecasts.get(name)
+            if forecast:
+                forecast_rows.append({"Horizon":name,"Model return":"{:+.1%}".format(forecast["predicted_return"]),"Model price":"${:,.2f}".format(forecast["estimated_price"]),"Direction accuracy":"{:.1%}".format(forecast["directional_accuracy"]),"Always-up baseline":"{:.1%}".format(forecast["baseline_accuracy"]),"Mean error":"{:.1%}".format(forecast["mae"])})
             else:
-                f1, f2, f3, f4 = st.columns(4)
-                rev = fundamentals.get("revenue_growth")
-                eg = fundamentals.get("earnings_growth")
-                pm = fundamentals.get("profit_margin")
-                pe = fundamentals.get("forward_pe")
-                f1.metric("Revenue Growth", "{:+.1%}".format(rev) if rev is not None else "N/A")
-                f2.metric("Earnings Growth", "{:+.1%}".format(eg) if eg is not None else "N/A")
-                f3.metric("Profit Margin", "{:.1%}".format(pm) if pm is not None else "N/A")
-                f4.metric("Forward P/E", "{:.1f}".format(pe) if pe is not None else "N/A")
-                for note in fund_notes:
-                    st.write("• " + note)
-
-            st.subheader("Earnings & News Context")
-            if earnings is not None:
-                e1, e2, e3 = st.columns(3)
-                e1.metric("Latest Earnings", earnings.get("date", "N/A"))
-                reported = earnings.get("reported_eps")
-                surprise = earnings.get("eps_surprise")
-                e2.metric("Reported EPS", "{:.2f}".format(reported) if reported is not None else "N/A")
-                e3.metric("EPS Surprise", "{:+.1%}".format(surprise) if surprise is not None else "N/A")
-            for note in evt_notes:
-                st.write("• " + note)
-
-            if news_items:
-                st.markdown("#### Recent Headlines")
-                for item in news_items[:6]:
-                    suffix = " — " + item["publisher"] if item["publisher"] else ""
-                    if item["url"]:
-                        st.markdown("- [{}]({}){}".format(item["title"], item["url"], suffix))
-                    else:
-                        st.write("• " + item["title"] + suffix)
-            else:
-                st.caption("No recent headline data was returned.")
-
-            st.subheader("Market Reaction / Overreaction Detector")
-            if reaction is None:
-                st.warning("Not enough data to evaluate the latest reaction.")
-            else:
-                r1, r2, r3, r4 = st.columns(4)
-                r1.metric("1-Day Move", "{:+.1%}".format(reaction["one_day_return"]))
-                r2.metric("3-Day Move", "{:+.1%}".format(reaction["three_day_return"]))
-                r3.metric("Move vs Normal", "{:+.1f}×".format(reaction["reaction_z"]))
-                r4.metric("Volume vs 20D Avg", "{:.1f}×".format(reaction["volume_ratio"]))
-
-                if reaction["direction"] == "NEGATIVE":
-                    st.warning("Possible NEGATIVE overreaction: {}".format(reaction["strength"]))
-                elif reaction["direction"] == "POSITIVE":
-                    st.warning("Possible POSITIVE overreaction: {}".format(reaction["strength"]))
+                forecast_rows.append({"Horizon":name,"Model return":"Insufficient history"})
+        st.dataframe(pd.DataFrame(forecast_rows),hide_index=True,use_container_width=True)
+        st.caption("Random Forest · historical prices and volume · a forecast is not a guarantee")
+        with st.expander("How to read these forecasts"):
+            st.write("Direction accuracy measures historical up/down predictions. Compare it with the always-up baseline; a higher-looking accuracy alone does not mean the model adds value. Mean error measures historical return prediction error.")
+            st.write("The 3-month model contributes to the research score. News and company fundamentals influence the score separately; they are not historical model inputs.")
+            for name,forecast in forecasts.items():
+                if forecast and forecast["directional_accuracy"] <= forecast["baseline_accuracy"]:
+                    st.caption(name+": did not beat the always-up baseline.")
+    with news_tab:
+        if earnings:
+            e1,e2,e3=st.columns(3)
+            e1.metric("Latest earnings",earnings.get("date","Unavailable"))
+            eps=earnings.get("reported_eps"); surprise=earnings.get("eps_surprise")
+            e2.metric("Reported EPS","{:.2f}".format(eps) if eps is not None else "Unavailable")
+            e3.metric("EPS surprise","{:+.1%}".format(surprise) if surprise is not None else "Unavailable")
+        for note in evt_notes:
+            st.caption(note)
+        if news_items:
+            for item in news_items[:6]:
+                suffix=" — "+item["publisher"] if item["publisher"] else ""
+                if item["url"]:
+                    st.markdown("- [{}]({}){}".format(item["title"],item["url"],suffix))
                 else:
-                    st.info("No clear overreaction signal.")
-
+                    st.write(item["title"]+suffix)
+        else:
+            st.caption("No recent headlines returned for this ticker.")
+        with st.expander("Market reaction signals"):
+            if reaction:
+                r1,r2,r3,r4=st.columns(4)
+                r1.metric("1-day move","{:+.1%}".format(reaction["one_day_return"]))
+                r2.metric("3-day move","{:+.1%}".format(reaction["three_day_return"]))
+                r3.metric("Move vs. normal","{:+.1f}×".format(reaction["reaction_z"]))
+                r4.metric("Volume vs. 20D","{:.1f}×".format(reaction["volume_ratio"]))
+                st.caption("Direction: {} · Strength: {}".format(reaction["direction"],reaction["strength"]))
                 for note in reaction["notes"]:
-                    st.write("• " + note)
-
-            st.divider()
-            st.subheader("Historical ML Forecasts")
-            st.caption(
-                "The ML model is trained on historical price/volume features. "
-                "The 3-month forecast now contributes to the final signal, but current news/fundamentals still remain outside the historical ML training set."
-            )
-
-            for horizon_label in HORIZONS:
-                forecast = forecasts.get(horizon_label)
-                st.markdown("### " + horizon_label)
-                if forecast is None:
-                    st.warning("Not enough valid historical data for this forecast.")
-                    continue
-
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Predicted Return", "{:+.1%}".format(forecast["predicted_return"]))
-                m2.metric("Estimated Model Price", "${:.2f}".format(forecast["estimated_price"]))
-                m3.metric("Historical Direction Accuracy", "{:.1%}".format(forecast["directional_accuracy"]))
-                m4.metric("Historical MAE", "{:.1%}".format(forecast["mae"]))
-                st.caption("Always-up baseline: {:.1%}".format(forecast["baseline_accuracy"]))
-                if forecast["directional_accuracy"] <= forecast["baseline_accuracy"]:
-                    st.caption("⚠️ This forecast did not beat the simple always-up baseline.")
-
-            st.divider()
-            st.info(
-                "Research experiment only. The hybrid score combines technical, fundamental, "
-                "earnings/news, and reaction heuristics. ML forecasts use historical price/volume patterns."
-            )
+                    st.write("• "+note)
+            else:
+                st.caption("Not enough data to evaluate the latest reaction.")
+else:
+    st.markdown('<div class="empty-garden"><img alt="Mochi and Miso waiting for your first stock" src="'+MASCOT_URI+'"><div><h3>Your next discovery starts here ♡</h3><p>Search a ticker above or pick a friend from your watchlist.</p></div></div>',unsafe_allow_html=True)
 
 
 # =========================================================
@@ -3906,15 +4098,11 @@ if should_analyze:
 # =========================================================
 
 st.divider()
-st.subheader("AI Portfolio Builder")
+st.subheader("♡ Build your little portfolio")
 st.caption(
-    "The broad market screen is cached. Portfolio construction limits history requests and trains ML only for selected holdings."
+    "Choose your budget and style. Explore a portfolio with company data and ML forecasts."
 )
 
-st.caption(
-    "Local cache is enabled. On your own computer it persists across app restarts; "
-    "on Streamlit Community Cloud it is temporary and can reset after the app sleeps, reboots, or redeploys."
-)
 
 with st.expander(
     "Build a portfolio",
@@ -3986,7 +4174,7 @@ with st.expander(
         )
 
     build_portfolio_clicked = st.button(
-        "Find Stocks & Build Portfolio",
+        "Create my portfolio ♡",
         type="primary",
         use_container_width=True,
         key="build_ai_portfolio_button",
@@ -4333,7 +4521,7 @@ with st.expander(
                             technical_map[symbol] = technical_analysis_from_data(refreshed)
                 workers = min(4, os.cpu_count() or 1, len(selected))
                 with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
-                    jobs = {executor.submit(add_portfolio_ml, holding, technical_map.get(holding["ticker"])): holding for holding in selected}
+                    jobs = {executor.submit(enrich_portfolio_holding, holding, technical_map.get(holding["ticker"])): holding for holding in selected}
                     for done, job in enumerate(as_completed(jobs), 1):
                         holding = jobs[job]
                         try:
@@ -4341,7 +4529,7 @@ with st.expander(
                         except Exception as exc:
                             holding["ml_status"] = "Model error: {}".format(exc)
                             failures.append(holding["ticker"])
-                        status.caption("ML forecasts ready: {}/{}".format(done, len(selected)))
+                        status.caption("Company + ML research ready: {}/{}".format(done, len(selected)))
                         progress.progress(done / len(selected))
                 status.empty()
                 progress.empty()
@@ -4498,6 +4686,8 @@ with st.expander(
 
                             "Analysis": holding.get("analysis_depth", "Technical + ML"),
                             "ML Model": holding.get("ml_status", "Unavailable"),
+                            "Company Score": ("{:.0f}/100".format(holding["fundamental_score"]) if holding.get("fundamental_score") is not None else "Unavailable"),
+                            "Company Data": holding.get("fundamentals_status", "unavailable"),
 
                             "3M ML Score":
                                 (
@@ -4571,40 +4761,39 @@ with st.expander(
                     "budget": budget,
                 }
 
-                st.dataframe(
-                    portfolio_table,
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                st.dataframe(portfolio_table[["Ticker", "Weight", "Signal", "3M ML Forecast", "Target Allocation"]], use_container_width=True, hide_index=True)
+                with st.expander("All company & model details"):
+                    st.dataframe(portfolio_table, use_container_width=True, hide_index=True)
 
-                st.markdown(
-                    "#### How it chose the portfolio"
-                )
-
-                st.write(
-                    "• The first pass ranks available U.S.-listed stocks using momentum, trend, RSI, and volatility."
-                )
-
-                st.write(
-                    "• The app caches candidate price histories and trains a fast Random Forest on the holdings actually selected."
-                )
-
-                st.write(
-                    "• If a model cannot train, the stock remains in the portfolio and its model status is shown."
-                )
-
-                st.write(
-                    "• The 3-month ML forecast directly affects the final stock rating, but weaker historical validation reduces its influence."
-                )
-
-                st.write(
-                    "• Correlated stocks are penalized so the portfolio is not just several versions of the same trade."
-                )
-
-                if diversify_sectors:
-                    st.write(
-                        "• All-sector mode also penalizes sector concentration and caps how many holdings can come from one sector."
+                with st.expander("How the portfolio was chosen"):
+                    st.markdown(
+                        "#### How it chose the portfolio"
                     )
+
+                    st.write(
+                        "• The first pass ranks available U.S.-listed stocks using momentum, trend, RSI, and volatility."
+                    )
+
+                    st.write(
+                        "• Selected holdings include company fundamentals and a fast Random Forest forecast when available."
+                    )
+
+                    st.write(
+                        "• If a model cannot train, the stock remains in the portfolio and its model status is shown."
+                    )
+
+                    st.write(
+                        "• The 3-month ML forecast directly affects the final stock rating, but weaker historical validation reduces its influence."
+                    )
+
+                    st.write(
+                        "• Correlated stocks are penalized so the portfolio is not just several versions of the same trade."
+                    )
+
+                    if diversify_sectors:
+                        st.write(
+                            "• All-sector mode also penalizes sector concentration and caps how many holdings can come from one sector."
+                        )
 
                 if technical_failures:
                     with st.expander(
@@ -4648,4 +4837,6 @@ with st.expander(
         st.caption("{} · {} · ${:,.0f} budget at build time. Rebuild to apply changed settings.".format(
             saved_portfolio["risk"], saved_portfolio["sector"], saved_portfolio["budget"]
         ))
-        st.dataframe(saved_portfolio["table"], use_container_width=True, hide_index=True)
+        st.dataframe(saved_portfolio["table"][["Ticker", "Weight", "Signal", "3M ML Forecast", "Target Allocation"]], use_container_width=True, hide_index=True)
+        with st.expander("All company & model details"):
+            st.dataframe(saved_portfolio["table"], use_container_width=True, hide_index=True)
