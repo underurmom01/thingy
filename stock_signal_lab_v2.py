@@ -327,7 +327,7 @@ p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
 .app-eyebrow { color:var(--muted); font-size:.68rem; font-weight:750; letter-spacing:.14em; text-transform:uppercase; }
 .app-hero h1 { margin:.6rem 0 .55rem; font-size:clamp(2.6rem,5.5vw,4.15rem)!important; line-height:1.04; text-transform:uppercase; font-weight:850!important; letter-spacing:-.06em; }
 .app-hero p { max-width:620px; color:var(--secondary); line-height:1.65; margin:0; }
-.app-nav { display:flex; gap:1.25rem; margin-top:1.35rem; }
+.app-nav { display:flex; flex-wrap:wrap; gap:1.25rem; margin-top:1.35rem; }
 .app-nav a { font-size:.78rem; font-weight:700; color:var(--secondary); text-decoration:none; padding-bottom:4px; border-bottom:2px solid transparent; transition:color .17s ease,border-color .17s ease; }
 .app-nav a:hover,.app-nav a:focus { color:var(--ink); border-color:var(--ink); }
 .sidebar-brand { color:var(--ink); font-size:1.26rem; font-weight:900; text-transform:uppercase; letter-spacing:-.06em; line-height:1.08; margin-bottom:.55rem; }
@@ -392,7 +392,7 @@ hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
 </style>
-<div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
+<div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a><a href="#rate-my-portfolio">Rate my portfolio</a></nav></div>
 """, unsafe_allow_html=True)
 
 
@@ -4160,6 +4160,139 @@ else:
 # =========================================================
 # PORTFOLIO BUILDER UI
 # =========================================================
+
+def normalize_portfolio_entries(entries):
+    holdings = {}
+    for i, row in entries.iterrows():
+        raw = row.get("Ticker")
+        ticker = "" if pd.isna(raw) else str(raw).strip().upper()
+        shares = safe_float(row.get("Shares"))
+        if not ticker and (shares is None or shares == 0):
+            continue
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-^=]{0,19}", ticker):
+            raise ValueError("Row {}: enter a valid stock ticker.".format(i + 1))
+        if shares is None or not np.isfinite(shares) or shares <= 0:
+            raise ValueError("Row {}: shares must be a positive number.".format(i + 1))
+        holdings[ticker] = holdings.get(ticker, 0.0) + shares
+    if not holdings:
+        raise ValueError("Add at least one ticker and its share count.")
+    if len(holdings) > 100:
+        raise ValueError("Rate up to 100 different stocks at a time.")
+    return holdings
+
+
+def rate_portfolio_position(ticker, shares):
+    data = download_data(ticker)
+    if data is None or data.empty:
+        raise ValueError("Price history unavailable")
+    close = data["Close"].dropna()
+    price = safe_float(close.iloc[-1]) if len(close) else None
+    if price is None or not np.isfinite(price) or price <= 0:
+        raise ValueError("Latest price unavailable")
+    technical = technical_analysis_from_data(data)
+    try:
+        fundamentals = download_fundamentals(ticker) or {}
+    except Exception:
+        fundamentals = {}
+    currency = fundamentals.get("currency")
+    if currency and currency.upper() != "USD":
+        raise ValueError("Quote is in {}; this view supports USD-priced holdings".format(currency))
+    company_score, _ = fundamental_score(fundamentals)
+    tech_score = technical["technical_score"] if technical else None
+    parts = [(value, weight) for value, weight in [(tech_score, .6), (company_score, .4)]
+             if value is not None and np.isfinite(value)]
+    score = sum(v * w for v, w in parts) / sum(w for _, w in parts) if parts else None
+    return {"Ticker": ticker, "Shares": shares, "Price": price, "Value": price * shares,
+            "Research score": score, "Technical": tech_score, "Company": company_score,
+            "Sector": fundamentals.get("sector") or "Unknown",
+            "Price date": str(close.index[-1].date()),
+            "Coverage": "Technical + company" if len(parts) == 2 else
+                        "Technical only" if tech_score is not None else
+                        "Company only" if company_score is not None else "Unrated"}
+
+
+def summarize_portfolio_rating(rows):
+    table = pd.DataFrame(rows)
+    total = float(table["Value"].sum())
+    table["Weight"] = table["Value"] / total
+    rated = table["Research score"].notna()
+    coverage = float(table.loc[rated, "Weight"].sum())
+    score = float((table.loc[rated, "Research score"] * table.loc[rated, "Weight"]).sum() / coverage) if coverage else None
+    table = table.sort_values("Weight", ascending=False).reset_index(drop=True)
+    return {"table": table, "total": total, "score": score, "coverage": coverage}
+
+
+st.divider()
+st.markdown('<div id="rate-my-portfolio"></div>', unsafe_allow_html=True)
+st.subheader("Rate my portfolio")
+st.caption("Enter your USD-priced stocks and share counts. Fractional shares work; duplicate tickers are combined.")
+with st.form("rate_portfolio_form"):
+    rating_entries = st.data_editor(
+        pd.DataFrame({"Ticker": ["", ""], "Shares": [0.0, 0.0]}),
+        num_rows="dynamic", hide_index=True, use_container_width=True,
+        column_config={"Ticker": st.column_config.TextColumn("Stock ticker", help="For example: AAPL or MSFT"),
+                       "Shares": st.column_config.NumberColumn("Shares owned", min_value=0.0, format="%.6f")},
+        key="rating_holdings_editor",
+    )
+    rate_clicked = st.form_submit_button("Rate my portfolio", type="primary", use_container_width=True)
+
+if rate_clicked:
+    try:
+        entered_holdings = normalize_portfolio_entries(rating_entries)
+    except ValueError as exc:
+        st.error(str(exc))
+    else:
+        rows, failures = [], []
+        with st.spinner("Checking your holdings…"):
+            with ThreadPoolExecutor(max_workers=min(4, len(entered_holdings))) as executor:
+                jobs = {executor.submit(rate_portfolio_position, ticker, shares): ticker
+                        for ticker, shares in entered_holdings.items()}
+                for job in as_completed(jobs):
+                    try:
+                        rows.append(job.result())
+                    except Exception as exc:
+                        failures.append(jobs[job] + ": " + (str(exc) if isinstance(exc, ValueError) else "Market data unavailable; try again."))
+        result = summarize_portfolio_rating(rows) if rows else None
+        st.session_state["portfolio_rating_result"] = {"result": result, "failures": sorted(failures),
+                                                       "time": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")}
+
+if "portfolio_rating_result" in st.session_state:
+    saved_rating = st.session_state["portfolio_rating_result"]
+    st.caption("Last submitted portfolio · {} · Submit again after editing holdings.".format(saved_rating["time"]))
+    for failure in saved_rating["failures"]:
+        st.warning(failure)
+    result = saved_rating["result"]
+    if result is None:
+        st.error("No holdings could be priced. Check the symbols and try again.")
+    else:
+        table = result["table"]
+        partial = bool(saved_rating["failures"])
+        a, b, c = st.columns(3)
+        a.metric("Priced holdings value" if partial else "Portfolio value", "${:,.2f}".format(result["total"]))
+        b.metric("Research rating (priced holdings)" if partial else "Research rating",
+                 "{:.0f}/100".format(result["score"]) if result["score"] is not None else "Unavailable")
+        c.metric("Largest position", "{} · {:.1%}".format(table.iloc[0]["Ticker"], table.iloc[0]["Weight"]))
+        if partial:
+            st.info("Unpriced holdings are excluded from value, weights and rating. These results cover only the priced portion of your portfolio.")
+        st.caption("Rating: value-weighted stock research scores, combining technical signals (60%) and company fundamentals (40%) where available. Rated coverage: {:.0%} of priced value. Missing components are omitted, not scored as zero. This is not a diversification or risk score.".format(result["coverage"]))
+        display = table.copy()
+        display["Weight"] = display["Weight"] * 100
+        st.dataframe(display, hide_index=True, use_container_width=True, column_config={
+            "Price": st.column_config.NumberColumn(format="$%.2f"),
+            "Value": st.column_config.NumberColumn(format="$%.2f"),
+            "Weight": st.column_config.NumberColumn("Weight (%)", format="%.1f%%"),
+            "Research score": st.column_config.NumberColumn(format="%.1f"),
+            "Technical": st.column_config.NumberColumn(format="%.1f"),
+            "Company": st.column_config.NumberColumn(format="%.1f"),
+        })
+        if table.iloc[0]["Weight"] > .25:
+            st.info("Concentration: {} accounts for {:.1%} of priced value.".format(table.iloc[0]["Ticker"], table.iloc[0]["Weight"]))
+        sectors = table.groupby("Sector")["Weight"].sum().sort_values(ascending=False)
+        with st.expander("Sector breakdown"):
+            st.dataframe((sectors * 100).rename("Weight (%)").round(1), use_container_width=True)
+        st.caption("Uses cached historical closing prices, not live quotes. Prices may have different dates. Cash, debt, taxes and trading costs are not included. Research scores do not predict guaranteed returns.")
+        st.download_button("Download portfolio review", display.to_csv(index=False), "buyntiq_portfolio_review.csv", "text/csv", key="download_rated_portfolio")
+
 
 st.divider()
 st.markdown('<div id="portfolio-builder"></div>', unsafe_allow_html=True)
