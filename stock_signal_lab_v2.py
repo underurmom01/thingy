@@ -301,7 +301,7 @@ st.markdown("""
   --focus: var(--accent);
 }
 .stApp { background:linear-gradient(145deg,var(--surface) 0%,var(--surface-soft) 55%,var(--subtle) 100%) fixed; color:var(--ink); }
-[data-testid="stHeader"] { background:color-mix(in srgb,var(--surface) 94%,transparent); border-bottom:2px solid var(--border); }
+/* Leave Streamlit app chrome/header untouched so its native menu and Settings controls remain fully interactive. */
 [data-testid="stSidebar"] { background:linear-gradient(180deg,var(--surface-soft) 0%,var(--subtle) 100%); border-right:2px solid var(--border); }
 [data-testid="stSidebar"] .block-container { padding-top:2.2rem; }
 .block-container { max-width:1080px; padding-top:2.5rem; padding-bottom:5rem; }
