@@ -313,6 +313,14 @@ p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
 [data-testid="stSidebar"] .stButton button { justify-content:flex-start; background:transparent; border:2px solid transparent; border-radius:0; font-weight:800; box-shadow:none; }
 [data-testid="stSidebar"] .stButton button:hover { background:#cedde8; border-color:var(--ink); transform:none; box-shadow:none; }
 [data-baseweb="input"], [data-baseweb="select"]>div,[data-baseweb="textarea"] { background:#fafcfd!important; border:2px solid var(--ink)!important; border-radius:0!important; color:var(--ink)!important; }
+[data-testid="stTextInput"] [data-baseweb="base-input"],
+[data-testid="stTextInput"] [data-baseweb="input"]>div,
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-baseweb="select"] input { background:#fafcfd!important; background-image:none!important; color:#18232f!important; -webkit-text-fill-color:#18232f!important; caret-color:#365b76!important; border-radius:0!important; }
+[data-testid="stTextInput"] input::placeholder { color:#536675!important; -webkit-text-fill-color:#536675!important; opacity:1; }
+[data-testid="stTextInput"] input:autofill { box-shadow:0 0 0 1000px #fafcfd inset!important; }
+[data-testid="stTextInput"] input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px #fafcfd inset!important; -webkit-text-fill-color:#18232f!important; }
 [data-baseweb="input"]:focus-within,[data-baseweb="textarea"]:focus-within { border-color:var(--ink)!important; box-shadow:3px 3px 0 var(--ink)!important; }
 [data-testid="stExpander"] { background:#fafcfd; border:2px solid var(--ink); border-radius:0; overflow:hidden; }
 [data-baseweb="tab-list"] { gap:1.3rem; border-bottom:2px solid var(--ink); padding:0; margin:1.4rem 0 1.1rem; }
@@ -330,7 +338,7 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 .empty-state span { color:var(--secondary); font-size:.82rem; }
 [data-testid="stAlert"] { background:#e5edf3!important; border:2px solid var(--ink)!important; border-radius:0; color:var(--ink)!important; }
 [data-testid="stAlert"] svg { color:#354c60!important; }
-[data-testid="stVegaLiteChart"] { box-sizing:border-box; padding:20px 16px; margin:14px 0 24px; background:#f8fafc; border:2px solid var(--ink); }
+[data-testid="stVegaLiteChart"] { box-sizing:border-box; width:100%; min-width:0; padding:0!important; margin:14px 0 24px; background:#f8fafc; border:0; box-shadow:inset 0 0 0 2px var(--ink); }
 [data-baseweb="tag"] { background:#dbe5ed!important; color:#18232f!important; border-radius:0!important; }
 [data-baseweb="tag"] span,[data-baseweb="tag"] svg { color:#18232f!important; }
 [data-baseweb="slider"] [role="slider"] { background:#365b76!important; border-color:#365b76!important; }
@@ -340,7 +348,6 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 [data-testid="stWidgetLabel"] p,[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"] { color:#354757!important; }
 [data-baseweb="menu"],[data-baseweb="popover"] { background:#f5f7f9!important; color:#18232f!important; }
 ::selection { background:#c6d5e2; color:#18232f; }
-@media(max-width:700px){ [data-testid="stVegaLiteChart"] { padding:12px 6px; } }
 hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
@@ -360,7 +367,7 @@ def render_price_chart(frame):
     palette = ["#365b76", "#66849a", "#92aabb", "#233c50"]
     chart = (
         alt.Chart(data)
-        .mark_line(strokeWidth=2)
+        .mark_line(strokeWidth=2, clip=True)
         .encode(
             x=alt.X("Date:T", title=None, axis=alt.Axis(labelPadding=10)),
             y=alt.Y("Value:Q", title="Price (USD)", scale=alt.Scale(zero=False),
@@ -369,7 +376,8 @@ def render_price_chart(frame):
                             legend=alt.Legend(title=None, orient="bottom", padding=12) if len(series) > 1 else None),
             tooltip=[alt.Tooltip("Date:T", title="Date"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
-        .properties(height=340, padding={"left":18, "right":24, "top":24, "bottom":18})
+        .properties(height=380, padding={"left":16, "right":16, "top":24, "bottom":16},
+                    autosize=alt.AutoSizeParams(type="fit", contains="padding", resize=True))
         .configure(background="#f8fafc", font="Arial")
         .configure_view(strokeOpacity=0)
         .configure_axis(labelColor="#354757", titleColor="#18232f", gridColor="#dbe3ea",
