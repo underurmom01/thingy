@@ -340,6 +340,7 @@ p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
 .stButton button:focus-visible,[data-testid="stFormSubmitButton"] button:focus-visible { outline:3px solid var(--ink); outline-offset:4px; }
 .stButton button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--ink); border-color:var(--ink); color:#fff!important; }
 .stButton button[kind="primary"]:hover,[data-testid="stFormSubmitButton"] button[kind="primary"]:hover { background:#344c60; border-color:var(--ink); color:#fff!important; }
+.stButton button[kind="primary"] p,[data-testid="stFormSubmitButton"] button[kind="primary"] p { color:#fff!important; font-size:1rem!important; font-weight:800!important; letter-spacing:.03em; }
 [data-testid="stSidebar"] .stButton button { justify-content:flex-start; background:transparent; border:2px solid transparent; border-radius:0; font-weight:800; box-shadow:none; }
 [data-testid="stSidebar"] .stButton button:hover { background:#cedde8; border-color:var(--ink); transform:none; box-shadow:none; }
 [data-baseweb="input"], [data-baseweb="select"]>div,[data-baseweb="textarea"] { background:#fafcfd!important; border:2px solid var(--ink)!important; border-radius:0!important; color:var(--ink)!important; }
@@ -390,12 +391,6 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
-.stButton button[kind="primary"] p {
-    color: #ffffff !important;
-    font-size: 1rem !important;
-    font-weight: 800 !important;
-    letter-spacing: 0.03em;
-}
 </style>
 <div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
 """, unsafe_allow_html=True)
@@ -2795,7 +2790,6 @@ def _extract_close_series(batch, ticker):
     return frame["Close"].dropna() if frame is not None else None
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
 def fast_screen_sector(
     sector_focus,
     finalist_limit=150,
@@ -2806,6 +2800,11 @@ def fast_screen_sector(
     Stage 1 still scans the broad selected U.S. universe, but the complete
     quick-score table is now also saved locally. Rebuilding a portfolio
     shortly afterward can therefore skip the full-market price scan.
+
+    Do not wrap this function in st.cache_data: its progress callback writes
+    to a placeholder created by the caller, which cannot be safely replayed
+    from Streamlit's cached UI messages. The disk cache below retains the
+    30-minute screening cache without caching page-specific UI callbacks.
     """
     cache_key = "{}__{}".format(sector_focus, scan_limit)
     disk_cached = _read_screen_cache(cache_key)
