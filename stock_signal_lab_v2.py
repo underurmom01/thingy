@@ -16,7 +16,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-st.set_page_config(page_title="Smarterbuys", page_icon="◼", layout="wide")
+st.set_page_config(page_title="Buyntiq", page_icon="◼", layout="wide")
 
 
 
@@ -330,12 +330,54 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 .empty-state span { color:var(--secondary); font-size:.82rem; }
 [data-testid="stAlert"] { background:#e5edf3!important; border:2px solid var(--ink)!important; border-radius:0; color:var(--ink)!important; }
 [data-testid="stAlert"] svg { color:#354c60!important; }
+[data-testid="stVegaLiteChart"] { box-sizing:border-box; padding:20px 16px; margin:14px 0 24px; background:#f8fafc; border:2px solid var(--ink); }
+[data-baseweb="tag"] { background:#dbe5ed!important; color:#18232f!important; border-radius:0!important; }
+[data-baseweb="tag"] span,[data-baseweb="tag"] svg { color:#18232f!important; }
+[data-baseweb="slider"] [role="slider"] { background:#365b76!important; border-color:#365b76!important; }
+[data-baseweb="slider"] div:has(>[role="slider"]) { background:#365b76!important; }
+[data-baseweb="checkbox"] input:checked+div { background:#365b76!important; border-color:#365b76!important; }
+[data-baseweb="radio"] input:checked+div { background:#365b76!important; border-color:#365b76!important; }
+[data-testid="stWidgetLabel"] p,[data-testid="stSliderTickBarMin"],[data-testid="stSliderTickBarMax"] { color:#354757!important; }
+[data-baseweb="menu"],[data-baseweb="popover"] { background:#f5f7f9!important; color:#18232f!important; }
+::selection { background:#c6d5e2; color:#18232f; }
+@media(max-width:700px){ [data-testid="stVegaLiteChart"] { padding:12px 6px; } }
 hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
 </style>
-<div class="app-hero"><div class="app-eyebrow">Smarterbuys / Research workspace</div><h1>Smarterbuys.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
+<div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
 """, unsafe_allow_html=True)
+
+
+def render_price_chart(frame):
+    """Explicit cool chart styling, independent of Streamlit's active theme."""
+    import altair as alt
+
+    data = frame.rename_axis("Date").reset_index().melt(
+        id_vars="Date", var_name="Series", value_name="Value"
+    )
+    series = list(frame.columns)
+    palette = ["#365b76", "#66849a", "#92aabb", "#233c50"]
+    chart = (
+        alt.Chart(data)
+        .mark_line(strokeWidth=2)
+        .encode(
+            x=alt.X("Date:T", title=None, axis=alt.Axis(labelPadding=10)),
+            y=alt.Y("Value:Q", title="Price (USD)", scale=alt.Scale(zero=False),
+                    axis=alt.Axis(labelPadding=8, titlePadding=16)),
+            color=alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette[:len(series)]),
+                            legend=alt.Legend(title=None, orient="bottom", padding=12) if len(series) > 1 else None),
+            tooltip=[alt.Tooltip("Date:T", title="Date"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
+        )
+        .properties(height=340, padding={"left":18, "right":24, "top":24, "bottom":18})
+        .configure(background="#f8fafc", font="Arial")
+        .configure_view(strokeOpacity=0)
+        .configure_axis(labelColor="#354757", titleColor="#18232f", gridColor="#dbe3ea",
+                        domainColor="#93a4b3", tickColor="#93a4b3")
+        .configure_legend(labelColor="#354757", titleColor="#18232f")
+        .interactive()
+    )
+    st.altair_chart(chart, use_container_width=True, theme=None)
 
 
 STRONG_BUY_THRESHOLD = 80
@@ -800,7 +842,7 @@ def _sec_json(url):
             time.sleep(delay)
         state["last"] = time.monotonic()
     response = requests.get(url, timeout=(4, 12), headers={
-        "User-Agent": os.environ.get("SEC_USER_AGENT", "Smarterbuys research application contact https://github.com/underurmom01/thingy"),
+        "User-Agent": os.environ.get("SEC_USER_AGENT", "Buyntiq research application contact https://github.com/underurmom01/thingy"),
         "Accept": "application/json",
     })
     response.raise_for_status()
@@ -3866,7 +3908,7 @@ if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = [symbol for symbol, _ in FEATURED_STOCKS]
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-brand">Smarterbuys</div><div class="sidebar-description">Your personal research workspace.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-brand">Buyntiq</div><div class="sidebar-description">Your personal research workspace.</div>', unsafe_allow_html=True)
     st.markdown("### Watchlist")
     st.caption("Select a ticker to open its research.")
     for symbol in st.session_state["watchlist"]:
@@ -3966,7 +4008,7 @@ if bundle and bundle["ticker"] == ticker:
         st.caption(ml_guardrail_note)
     overview_tab, company_tab, forecast_tab, news_tab = st.tabs(["Overview", "Company", "Forecasts", "News"])
     with overview_tab:
-        st.line_chart(technical["chart"][["Price"]].tail(504), color="#365b76", use_container_width=True)
+        render_price_chart(technical["chart"][["Price"]].tail(504))
         cols=st.columns(3)
         for col,key,name in zip(cols,["return_1m","return_3m","return_6m"],["Past month","Past 3 months","Past 6 months"]):
             value=safe_float(technical[key])
@@ -3981,7 +4023,7 @@ if bundle and bundle["ticker"] == ticker:
             t1.metric("RSI", "{:.1f}".format(technical["rsi"]))
             t2.metric("Annual volatility", "{:.1%}".format(technical["annualized_volatility"]))
             t3.metric("Max drawdown", "{:.1%}".format(technical["max_drawdown"]))
-            st.line_chart(technical["chart"].tail(504),color=["#365b76","#66849a","#92aabb","#233c50"],use_container_width=True)
+            render_price_chart(technical["chart"].tail(504))
     with company_tab:
         status=fundamentals.get("status", "unavailable")
         if status in ("unavailable","stale"):
