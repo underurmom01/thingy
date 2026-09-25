@@ -390,6 +390,12 @@ button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"
 hr { border-color:var(--border); }
 @media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
 @media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
+.stButton button[kind="primary"] p {
+    color: #ffffff !important;
+    font-size: 1rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.03em;
+}
 </style>
 <div class="app-hero"><div class="app-eyebrow">Buyntiq / Research workspace</div><h1>Buyntiq.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
 """, unsafe_allow_html=True)
