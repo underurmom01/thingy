@@ -11,13 +11,12 @@ import time
 import shutil
 import hashlib
 import uuid
-import base64
 import html
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-st.set_page_config(page_title="femboy investing · Stock Signal Lab", page_icon="🌸", layout="wide")
+st.set_page_config(page_title="Smarterbuys", page_icon="◼", layout="wide")
 
 
 
@@ -281,92 +280,62 @@ def get_yfinance():
 # VISUAL DESIGN ONLY — backend/model logic below is unchanged
 # =========================================================
 
-MASCOT_SVG = r"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 390" fill="none">
-<defs><linearGradient id="sky" x2="1" y2="1"><stop stop-color="#ffe1ef"/><stop offset="1" stop-color="#f2e2ff"/></linearGradient><linearGradient id="pink" x2="0" y2="1"><stop stop-color="#fff9fc"/><stop offset="1" stop-color="#ffedee"/></linearGradient></defs>
-<ellipse cx="272" cy="220" rx="208" ry="150" fill="url(#sky)"/>
-<path d="M89 277C63 277 58 243 83 233C79 205 119 190 135 214C158 195 187 214 182 234C215 238 214 277 184 277Z" fill="#fff" opacity=".8"/>
-<path d="M386 295C356 295 354 262 376 254C373 229 402 217 420 237C441 222 468 236 467 256C494 260 493 294 466 295Z" fill="#fff" opacity=".9"/>
-<ellipse cx="277" cy="334" rx="173" ry="20" fill="#d9a2bf" opacity=".18"/>
-<!-- Mochi: floppy-eared bunny with strawberry bow -->
-<ellipse cx="216" cy="263" rx="68" ry="67" fill="url(#pink)" stroke="#ad6a8a" stroke-width="4"/>
-<path d="M165 164C139 144 133 69 158 67C182 66 188 116 190 143" fill="#fff8fb" stroke="#ad6a8a" stroke-width="4"/>
-<path d="M206 139C208 96 231 62 250 78C268 96 248 141 235 157" fill="#fff8fb" stroke="#ad6a8a" stroke-width="4"/>
-<path d="M160 85C152 87 163 124 173 137" stroke="#f7b9d2" stroke-width="12" stroke-linecap="round"/>
-<path d="M240 93C243 103 232 127 224 137" stroke="#f7b9d2" stroke-width="12" stroke-linecap="round"/>
-<ellipse cx="201" cy="184" rx="75" ry="62" fill="url(#pink)" stroke="#ad6a8a" stroke-width="4"/>
-<ellipse cx="153" cy="201" rx="16" ry="10" fill="#f9b5cb"/><ellipse cx="245" cy="201" rx="16" ry="10" fill="#f9b5cb"/>
-<ellipse cx="174" cy="183" rx="6" ry="8" fill="#785366"/><ellipse cx="223" cy="183" rx="6" ry="8" fill="#785366"/>
-<circle cx="176" cy="180" r="2" fill="white"/><circle cx="225" cy="180" r="2" fill="white"/>
-<path d="M193 197L200 202L207 197" fill="#d387a5"/><path d="M200 202C194 214 184 207 186 202M200 202C206 214 216 207 214 202" stroke="#97657b" stroke-width="3" stroke-linecap="round"/>
-<path d="M234 138C225 119 230 108 245 121L259 134C276 113 288 120 275 140C287 157 276 165 259 146C244 162 229 158 234 138Z" fill="#ea8bb5" stroke="#ad6a8a" stroke-width="3"/><circle cx="258" cy="138" r="8" fill="#ffcadf" stroke="#ad6a8a" stroke-width="3"/>
-<ellipse cx="179" cy="321" rx="25" ry="14" fill="#fff5fa" stroke="#ad6a8a" stroke-width="4"/><ellipse cx="248" cy="321" rx="25" ry="14" fill="#fff5fa" stroke="#ad6a8a" stroke-width="4"/>
-<path d="M180 261C184 236 214 238 219 260C231 237 259 247 252 271C246 291 219 306 219 306C219 306 176 285 180 261Z" fill="#f384a9" stroke="#bb6386" stroke-width="3"/>
-<path d="M206 251L219 246L230 254L218 258Z" fill="#a2bf8d"/><path d="M219 246L222 237" stroke="#80a16d" stroke-width="3" stroke-linecap="round"/>
-<path d="M195 267L197 272M219 268L221 273M239 267L237 272M211 289L213 294M230 285L228 290" stroke="#fff2c6" stroke-width="3" stroke-linecap="round"/>
-<ellipse cx="166" cy="269" rx="13" ry="20" transform="rotate(-30 166 269)" fill="#fff5fa" stroke="#ad6a8a" stroke-width="3"/>
-<!-- Miso: lilac kitten and heart pocket -->
-<path d="M407 299C447 281 455 307 431 321" stroke="#aa85b0" stroke-width="20" stroke-linecap="round"/>
-<path d="M407 299C447 281 455 307 431 321" stroke="#eedcf5" stroke-width="13" stroke-linecap="round"/>
-<ellipse cx="355" cy="277" rx="59" ry="54" fill="#f1e4f7" stroke="#aa85b0" stroke-width="4"/>
-<path d="M290 205L282 157Q284 147 296 154L324 171Q354 159 380 175L409 158Q418 156 417 168L413 215Q421 260 356 264Q294 262 290 205Z" fill="#f6ecfa" stroke="#aa85b0" stroke-width="4" stroke-linejoin="round"/>
-<path d="M294 170L300 193L315 181Z" fill="#eab4d5"/><path d="M403 173L390 186L405 196Z" fill="#eab4d5"/>
-<ellipse cx="312" cy="228" rx="14" ry="8" fill="#f1bad4"/><ellipse cx="393" cy="228" rx="14" ry="8" fill="#f1bad4"/>
-<path d="M320 211Q330 203 339 211M369 211Q378 203 387 211" stroke="#86658e" stroke-width="4" stroke-linecap="round"/>
-<path d="M348 222L355 227L362 222" fill="#c689b0"/><path d="M355 227Q348 239 342 231M355 227Q362 239 368 231" stroke="#96729c" stroke-width="3" stroke-linecap="round"/>
-<path d="M330 165Q325 145 341 151L355 164Q371 146 382 155Q384 165 370 176L355 169Q338 183 330 165Z" fill="#ffc5dc" stroke="#b581a3" stroke-width="3"/>
-<ellipse cx="327" cy="326" rx="21" ry="11" fill="#f6ecfa" stroke="#aa85b0" stroke-width="3"/><ellipse cx="386" cy="326" rx="21" ry="11" fill="#f6ecfa" stroke="#aa85b0" stroke-width="3"/>
-<path d="M340 285C336 270 353 266 357 277C363 265 379 272 374 285L357 301Z" fill="#f2adca"/>
-<!-- Twinkle, tiny star companion -->
-<path d="M378 50L390 76L419 79L398 99L403 128L378 115L353 128L358 99L337 79L366 76Z" fill="#fff1ba" stroke="#d7b381" stroke-width="3" stroke-linejoin="round"/>
-<circle cx="369" cy="94" r="3" fill="#9e7f75"/><circle cx="388" cy="94" r="3" fill="#9e7f75"/>
-<path d="M374 102Q379 108 384 102" stroke="#b58b75" stroke-width="2" stroke-linecap="round"/>
-<circle cx="360" cy="101" r="4" fill="#f0bcbd"/><circle cx="395" cy="101" r="4" fill="#f0bcbd"/>
-<g stroke="#dda0c1" stroke-width="3" stroke-linecap="round"><path d="M97 144V164M87 154H107M452 182V198M444 190H460M293 53V67M286 60H300"/></g>
-<g fill="#e8aecb"><circle cx="112" cy="103" r="4"/><circle cx="457" cy="118" r="5"/><circle cx="284" cy="111" r="3"/><circle cx="95" cy="309" r="4"/></g>
-<path d="M441 66C431 56 419 68 441 83C463 67 450 56 441 66Z" fill="#efb0cc"/>
-</svg>"""
-MASCOT_URI = "data:image/svg+xml;base64," + base64.b64encode(MASCOT_SVG.encode()).decode()
-
 st.markdown("""
 <style>
-:root{color-scheme:light;--ink:#693d56;--muted:#987289;--pink:#d65390;--line:#f1d6e3;--paper:#fffafd;}
-.stApp{background:radial-gradient(ellipse at 8% 8%,#ffe2ed 0,transparent 40%),radial-gradient(ellipse at 95% 40%,#f0e4ff 0,transparent 45%),#fff8fc;background-attachment:fixed;color:var(--ink);}
-.stApp:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:radial-gradient(#e8b2cd55 1px,transparent 1px);background-size:24px 24px;z-index:0;}
-[data-testid="stHeader"]{background:rgba(255,248,252,.86);backdrop-filter:blur(16px);}
-[data-testid="stSidebar"]{background:#fff5fa;border-right:1px solid var(--line);}
-[data-testid="stSidebar"] .block-container{padding-top:1.8rem;}
-.block-container{max-width:1190px;padding-top:2rem;padding-bottom:3rem;position:relative;}
-h1,h2,h3{font-family:"Trebuchet MS","Arial Rounded MT Bold",sans-serif!important;color:var(--ink)!important;letter-spacing:-.035em;font-weight:700!important;}
-p,label,[data-testid="stMarkdownContainer"]{color:var(--ink);}
-[data-testid="stCaptionContainer"] p{color:var(--muted);font-size:.82rem;}
-.app-hero{position:relative;display:flex;align-items:center;justify-content:space-between;min-height:300px;margin-bottom:1.3rem;padding:30px 38px;border:1px solid #f2ccde;border-radius:30px;background:linear-gradient(115deg,#fffdfc 5%,#fff0f7 65%,#f6edff);box-shadow:0 10px 35px #bb739012;overflow:hidden;}
-.hero-copy{width:58%;z-index:1;}.app-eyebrow{display:inline-block;padding:7px 13px;border:1px solid #efd0dd;border-radius:30px;color:#a0577d;background:#fff9fb;font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;}
-.app-hero h1{font-size:clamp(2.5rem,4.5vw,3.8rem);line-height:1.08;margin:16px 0 12px;}.app-hero p{max-width:330px;color:#98677f;font-size:.95rem;line-height:1.7;}.hero-art{width:44%;max-width:360px;filter:drop-shadow(0 9px 6px #d38db21a);}
-.hero-foot{font-size:.72rem;color:#b07795;letter-spacing:.03em;margin-top:15px;}
-.sidebar-brand{font-family:"Trebuchet MS",sans-serif;font-size:1.4rem;font-weight:bold;color:#995471;letter-spacing:-.04em;}.sidebar-art{display:block;width:180px;margin:-8px auto -12px;}.sidebar-note{text-align:center;font-size:.7rem;color:#aa7d93;}
-[data-testid="stMetric"]{background:linear-gradient(150deg,#ffffff,#fff7fb);border:1px solid var(--line);border-radius:19px;padding:1rem 1.2rem;box-shadow:0 5px 14px #ad698607;}
-[data-testid="stMetricValue"]{color:#8c456a;font-size:1.75rem;letter-spacing:-.035em;}
-[data-testid="stMetricLabel"]{color:#92687f;font-size:.8rem;}
-.stButton button,.stDownloadButton button{border-radius:12px;border:1px solid #ebc7da;background:#fffcfe;color:#955d79;transition:background .18s,box-shadow .18s;}
-.stButton button:hover{background:#ffe8f3;border-color:#d985ae;box-shadow:0 4px 12px #c67ba31a;}
-.stButton button[kind="primary"],button[kind="primaryFormSubmit"]{background:#cf6399;color:white;border:1px solid #c5578d;box-shadow:0 4px 0 #af4e7930;}
-[data-testid="stSidebar"] .stButton button{justify-content:flex-start;border-radius:11px;}
-[data-baseweb="input"],[data-baseweb="select"]>div,[data-baseweb="textarea"]{background:#fffafd!important;border-color:#eed0e0!important;border-radius:12px!important;color:var(--ink)!important;}
-[data-testid="stExpander"]{background:#fffbfd;border:1px solid var(--line);border-radius:16px;}
-[data-baseweb="tab-list"]{gap:9px;border-bottom:1px solid #eed3e1;padding-bottom:7px;margin-top:18px;}
-button[data-baseweb="tab"]{border-radius:11px;padding:8px 17px;color:#976b82;background:#fff5fa;}
-button[data-baseweb="tab"][aria-selected="true"]{background:#f9ddeb;color:#9a4972;}
-[data-baseweb="tab-highlight"]{background:#d477a3;height:2px;}
-[data-testid="stDataFrame"]{border:1px solid #edd3e1;border-radius:16px;overflow:hidden;}
-.stock-hero{display:flex;align-items:center;justify-content:space-between;margin:1.4rem 0 1rem;}.stock-kicker{font-size:.68rem;color:#a87490;letter-spacing:.12em;text-transform:uppercase;}.stock-name{font-family:"Trebuchet MS",sans-serif;font-size:2rem;color:#7c4662;font-weight:bold;}.stock-company{font-size:.88rem;color:#9b7289;}
-.signal-pill{padding:8px 16px;background:#fce4ef;border:1px solid #edc1d5;border-radius:50px;font-size:.77rem;color:#a4567c;font-weight:bold;}
-.empty-garden{display:flex;align-items:center;gap:1.5rem;margin:14px 0;padding:12px 24px;border:1px dashed #e8bfd4;background:#fffbfd;border-radius:20px;}.empty-garden img{width:125px;}.empty-garden h3{font-size:1.15rem;margin:0 0 5px;}.empty-garden p{font-size:.85rem;color:#a1778d;margin:0;}
-hr{border-color:#eed6e2;}[data-testid="stAlert"]{border-radius:14px;}
-@media(max-width:700px){.app-hero{padding:22px;min-height:0;flex-direction:column;align-items:flex-start;}.hero-copy{width:100%;}.hero-art{width:230px;align-self:center;margin-top:-15px;}.app-hero h1{font-size:2.8rem;}.block-container{padding-left:1rem;padding-right:1rem;}.empty-garden{padding:12px;gap:8px;}.empty-garden img{width:90px;}button[data-baseweb="tab"]{padding:6px 10px;}}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+:root { color-scheme: light; --ink:#18232f; --secondary:#354757; --muted:#536675; --border:#18232f; --subtle:#e6ecf1; --surface:#f5f7f9; }
+.stApp { background:linear-gradient(145deg,#f8fafb 0%,#e8eef3 55%,#dce5ec 100%) fixed; color:var(--ink); }
+[data-testid="stHeader"] { background:#f5f7f9; border-bottom:2px solid var(--ink); }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,#edf2f6 0%,#dbe5ed 100%); border-right:2px solid var(--ink); }
+[data-testid="stSidebar"] .block-container { padding-top:2.2rem; }
+.block-container { max-width:1080px; padding-top:2.5rem; padding-bottom:5rem; }
+html,body,button,input,textarea { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+h1,h2,h3,h4 { color:var(--ink)!important; letter-spacing:-.035em; font-weight:650!important; }
+h1 { font-size:2.35rem!important; } h2 { font-size:1.55rem!important; } h3 { font-size:1.18rem!important; }
+p, label, [data-testid="stMarkdownContainer"] { color:var(--ink); }
+[data-testid="stCaptionContainer"] p { color:var(--muted); font-size:.82rem; line-height:1.55; }
+.app-hero { background:linear-gradient(125deg,#dce7f0 0%,#edf2f5 52%,#c6d5e2 100%); padding:2rem 2.1rem 1.8rem; margin:0 9px 2.8rem 0; border:3px solid var(--ink); box-shadow:8px 8px 0 var(--ink); }
+.app-eyebrow { color:var(--muted); font-size:.68rem; font-weight:750; letter-spacing:.14em; text-transform:uppercase; }
+.app-hero h1 { margin:.6rem 0 .55rem; font-size:clamp(2.6rem,5.5vw,4.15rem)!important; line-height:1.04; text-transform:uppercase; font-weight:850!important; letter-spacing:-.06em; }
+.app-hero p { max-width:620px; color:var(--secondary); line-height:1.65; margin:0; }
+.app-nav { display:flex; gap:1.25rem; margin-top:1.35rem; }
+.app-nav a { font-size:.78rem; font-weight:700; color:var(--secondary); text-decoration:none; padding-bottom:4px; border-bottom:2px solid transparent; transition:color .17s ease,border-color .17s ease; }
+.app-nav a:hover,.app-nav a:focus { color:var(--ink); border-color:var(--ink); }
+.sidebar-brand { color:var(--ink); font-size:1.26rem; font-weight:900; text-transform:uppercase; letter-spacing:-.06em; line-height:1.08; margin-bottom:.55rem; }
+.sidebar-description { color:var(--muted); font-size:.79rem; line-height:1.5; margin-bottom:1.4rem; }
+[data-testid="stMetric"] { background:linear-gradient(135deg,#f9fbfc,#e3eaf0); border:2px solid var(--ink); border-radius:0; box-shadow:4px 4px 0 var(--ink); padding:1rem 1.1rem; min-height:108px; margin:0 4px 5px 0; }
+[data-testid="stMetricValue"] { color:var(--ink); font-size:1.7rem; letter-spacing:-.04em; }
+[data-testid="stMetricLabel"] { color:var(--muted); font-size:.8rem; }
+.stButton button,.stDownloadButton button,[data-testid="stFormSubmitButton"] button { background:linear-gradient(135deg,#edf2f5,#cbd9e4); color:var(--ink)!important; border:2px solid var(--ink); border-radius:0; font-size:.84rem; font-weight:800; letter-spacing:.005em; min-height:43px; box-shadow:3px 3px 0 var(--ink); transition:background .14s ease,transform .14s ease,box-shadow .14s ease; }
+.stButton button:hover,.stDownloadButton button:hover,[data-testid="stFormSubmitButton"] button:hover { background:linear-gradient(135deg,#d9e5ee,#b7cad9); border-color:var(--ink); color:var(--ink)!important; transform:translate(-2px,-2px); box-shadow:5px 5px 0 var(--ink);  }
+.stButton button:focus-visible,[data-testid="stFormSubmitButton"] button:focus-visible { outline:3px solid var(--ink); outline-offset:4px; }
+.stButton button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background:var(--ink); border-color:var(--ink); color:#fff!important; }
+.stButton button[kind="primary"]:hover,[data-testid="stFormSubmitButton"] button[kind="primary"]:hover { background:#344c60; border-color:var(--ink); color:#fff!important; }
+[data-testid="stSidebar"] .stButton button { justify-content:flex-start; background:transparent; border:2px solid transparent; border-radius:0; font-weight:800; box-shadow:none; }
+[data-testid="stSidebar"] .stButton button:hover { background:#cedde8; border-color:var(--ink); transform:none; box-shadow:none; }
+[data-baseweb="input"], [data-baseweb="select"]>div,[data-baseweb="textarea"] { background:#fafcfd!important; border:2px solid var(--ink)!important; border-radius:0!important; color:var(--ink)!important; }
+[data-baseweb="input"]:focus-within,[data-baseweb="textarea"]:focus-within { border-color:var(--ink)!important; box-shadow:3px 3px 0 var(--ink)!important; }
+[data-testid="stExpander"] { background:#fafcfd; border:2px solid var(--ink); border-radius:0; overflow:hidden; }
+[data-baseweb="tab-list"] { gap:1.3rem; border-bottom:2px solid var(--ink); padding:0; margin:1.4rem 0 1.1rem; }
+button[data-baseweb="tab"] { color:#526675; border-radius:0; background:none; font-weight:650; padding:.8rem .15rem; transition:color .17s ease; }
+button[data-baseweb="tab"]:hover,button[data-baseweb="tab"][aria-selected="true"] { color:var(--ink); }
+[data-baseweb="tab-highlight"] { background:var(--ink); height:4px; }
+[data-testid="stDataFrame"] { border:2px solid var(--ink); border-radius:0; overflow:hidden; }
+.stock-hero { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:1.3rem 0 1rem; }
+.stock-kicker { font-size:.69rem; color:var(--muted); font-weight:750; letter-spacing:.09em; text-transform:uppercase; }
+.stock-name { font-size:1.9rem; font-weight:700; letter-spacing:-.04em; color:var(--ink); }
+.stock-company { font-size:.88rem; color:var(--secondary); }
+.signal-pill { color:var(--ink); background:#cddde8; border:2px solid var(--ink); border-radius:0; font-size:.75rem; font-weight:750; padding:8px 12px; white-space:nowrap; }
+.empty-state { background:linear-gradient(135deg,#f8fafb,#e1eaf0); border:2px solid var(--ink); box-shadow:4px 4px 0 var(--ink); border-radius:0; padding:1.3rem 1.5rem; margin:1rem 0 2rem; }
+.empty-state strong { color:var(--ink); display:block; margin-bottom:.25rem; font-size:.94rem; }
+.empty-state span { color:var(--secondary); font-size:.82rem; }
+[data-testid="stAlert"] { background:#e5edf3!important; border:2px solid var(--ink)!important; border-radius:0; color:var(--ink)!important; }
+[data-testid="stAlert"] svg { color:#354c60!important; }
+hr { border-color:var(--border); }
+@media(max-width:700px){ .block-container { padding-left:1rem; padding-right:1rem; padding-top:1.5rem; } .app-hero { padding:1.35rem; margin-right:6px; box-shadow:6px 6px 0 var(--ink); } .app-hero { margin-bottom:1.4rem; } .app-hero h1 { font-size:2.1rem!important; } .app-nav { gap:1rem; } [data-baseweb="tab-list"] { gap:.7rem; overflow-x:auto; } button[data-baseweb="tab"] { padding:.6rem .05rem; font-size:.8rem; } .stock-hero { align-items:flex-start; } }
+@media(prefers-reduced-motion:reduce){* { transition:none!important; transform:none!important; scroll-behavior:auto!important; }}
 </style>
+<div class="app-hero"><div class="app-eyebrow">Smarterbuys / Research workspace</div><h1>Smarterbuys.</h1><p>A clearer way to explore stocks, compare signals, and build a portfolio.</p><nav class="app-nav" aria-label="On this page"><a href="#stock-research">Stock research</a><a href="#portfolio-builder">Portfolio builder</a></nav></div>
 """, unsafe_allow_html=True)
-st.markdown('<div class="app-hero"><div class="hero-copy"><div class="app-eyebrow">♡ your little investing corner</div><h1>femboy investing<span style="color:#d77ca7">.</span></h1><p>A softer space for serious research.<br>Your stocks, a little clearer.</p><div class="hero-foot">Meet Mochi, Miso &amp; Twinkle ✧</div></div><img class="hero-art" alt="Mochi the bunny holding a strawberry, Miso the lilac kitten, and Twinkle the smiling star" src="' + MASCOT_URI + '"></div>', unsafe_allow_html=True)
 
 
 STRONG_BUY_THRESHOLD = 80
@@ -831,7 +800,7 @@ def _sec_json(url):
             time.sleep(delay)
         state["last"] = time.monotonic()
     response = requests.get(url, timeout=(4, 12), headers={
-        "User-Agent": os.environ.get("SEC_USER_AGENT", "MochiMarket research application contact https://github.com/underurmom01/thingy"),
+        "User-Agent": os.environ.get("SEC_USER_AGENT", "Smarterbuys research application contact https://github.com/underurmom01/thingy"),
         "Accept": "application/json",
     })
     response.raise_for_status()
@@ -3897,9 +3866,9 @@ if "watchlist" not in st.session_state:
         st.session_state["watchlist"] = [symbol for symbol, _ in FEATURED_STOCKS]
 
 with st.sidebar:
-    st.markdown('<div class="sidebar-brand">♡ femboy investing</div><img class="sidebar-art" alt="Your bunny and kitten research companions" src="'+MASCOT_URI+'"><div class="sidebar-note">a little company for your watchlist</div>', unsafe_allow_html=True)
-    st.markdown("### My watchlist")
-    st.caption("Pick a stock. Let’s take a peek.")
+    st.markdown('<div class="sidebar-brand">Smarterbuys</div><div class="sidebar-description">Your personal research workspace.</div>', unsafe_allow_html=True)
+    st.markdown("### Watchlist")
+    st.caption("Select a ticker to open its research.")
     for symbol in st.session_state["watchlist"]:
         st.button(symbol, key="watch_" + symbol, on_click=choose_ticker,
                   args=(symbol,), use_container_width=True)
@@ -3926,11 +3895,12 @@ with st.sidebar:
             st.cache_data.clear()
             clear_local_disk_cache()
             st.success("Market caches cleared.")
-    st.caption("Made for curious minds ♡")
+    st.caption("Price and company data may update at different times.")
 
 
+st.markdown('<div id="stock-research"></div>', unsafe_allow_html=True)
 ticker = st.text_input(
-    "Ticker",
+    "Stock ticker",
     placeholder="AAPL",
     max_chars=12,
     key="ticker_input",
@@ -3953,7 +3923,7 @@ if should_analyze:
     if not ticker:
         st.warning("Enter a ticker first.")
     else:
-        with st.spinner("Mochi is gathering your research…"):
+        with st.spinner("Loading stock research…"):
             with ThreadPoolExecutor(max_workers=4) as executor:
                 technical_job = executor.submit(technical_analysis, ticker)
                 fund_job = executor.submit(download_fundamentals, ticker)
@@ -3994,9 +3964,9 @@ if bundle and bundle["ticker"] == ticker:
     st.caption("Historical model estimate · not a promised return")
     if ml_guardrail_note:
         st.caption(ml_guardrail_note)
-    overview_tab, company_tab, forecast_tab, news_tab = st.tabs(["✧ Overview", "♡ Company", "☁ Forecasts", "✿ News"])
+    overview_tab, company_tab, forecast_tab, news_tab = st.tabs(["Overview", "Company", "Forecasts", "News"])
     with overview_tab:
-        st.line_chart(technical["chart"][["Price"]].tail(504), color="#cf6399", use_container_width=True)
+        st.line_chart(technical["chart"][["Price"]].tail(504), color="#365b76", use_container_width=True)
         cols=st.columns(3)
         for col,key,name in zip(cols,["return_1m","return_3m","return_6m"],["Past month","Past 3 months","Past 6 months"]):
             value=safe_float(technical[key])
@@ -4011,7 +3981,7 @@ if bundle and bundle["ticker"] == ticker:
             t1.metric("RSI", "{:.1f}".format(technical["rsi"]))
             t2.metric("Annual volatility", "{:.1%}".format(technical["annualized_volatility"]))
             t3.metric("Max drawdown", "{:.1%}".format(technical["max_drawdown"]))
-            st.line_chart(technical["chart"].tail(504),color=["#cc6296","#e9a1c1","#b599ce","#b7a388"],use_container_width=True)
+            st.line_chart(technical["chart"].tail(504),color=["#365b76","#66849a","#92aabb","#233c50"],use_container_width=True)
     with company_tab:
         status=fundamentals.get("status", "unavailable")
         if status in ("unavailable","stale"):
@@ -4090,7 +4060,7 @@ if bundle and bundle["ticker"] == ticker:
             else:
                 st.caption("Not enough data to evaluate the latest reaction.")
 else:
-    st.markdown('<div class="empty-garden"><img alt="Mochi and Miso waiting for your first stock" src="'+MASCOT_URI+'"><div><h3>Your next discovery starts here ♡</h3><p>Search a ticker above or pick a friend from your watchlist.</p></div></div>',unsafe_allow_html=True)
+    st.markdown('<div class="empty-state"><strong>Start with a stock.</strong><span>Enter a ticker above or select one from your watchlist.</span></div>', unsafe_allow_html=True)
 
 
 # =========================================================
@@ -4098,14 +4068,15 @@ else:
 # =========================================================
 
 st.divider()
-st.subheader("♡ Build your little portfolio")
+st.markdown('<div id="portfolio-builder"></div>', unsafe_allow_html=True)
+st.subheader("Portfolio builder")
 st.caption(
-    "Choose your budget and style. Explore a portfolio with company data and ML forecasts."
+    "Choose a sector, risk profile, number of holdings, and budget."
 )
 
 
 with st.expander(
-    "Build a portfolio",
+    "Portfolio settings",
     expanded=False,
 ):
     p1, p2, p3, p4 = st.columns(4)
@@ -4174,7 +4145,7 @@ with st.expander(
         )
 
     build_portfolio_clicked = st.button(
-        "Create my portfolio ♡",
+        "Build portfolio",
         type="primary",
         use_container_width=True,
         key="build_ai_portfolio_button",
@@ -4833,7 +4804,7 @@ with st.expander(
 
     elif "last_portfolio" in st.session_state:
         saved_portfolio = st.session_state["last_portfolio"]
-        st.markdown("### Your latest portfolio")
+        st.markdown("### Latest portfolio")
         st.caption("{} · {} · ${:,.0f} budget at build time. Rebuild to apply changed settings.".format(
             saved_portfolio["risk"], saved_portfolio["sector"], saved_portfolio["budget"]
         ))
